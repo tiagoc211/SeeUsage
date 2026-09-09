@@ -1,8 +1,18 @@
 import Foundation
 import Observation
 
-extension Notification.Name {
-    public static let usageStoreDidUpdate = Notification.Name("usageStoreDidUpdate")
+public extension Notification.Name {
+    static let usageStoreDidUpdate = Notification.Name("app.seeusage.store.didUpdate")
+}
+
+public struct SharedUsageCache: Codable, Sendable {
+    public let timestamp: Date
+    public let snapshots: [UUID: UsageSnapshot]
+
+    public init(timestamp: Date, snapshots: [UUID: UsageSnapshot]) {
+        self.timestamp = timestamp
+        self.snapshots = snapshots
+    }
 }
 
 @Observable
@@ -10,13 +20,18 @@ extension Notification.Name {
 public final class UsageStore {
     public static let shared = UsageStore()
 
-    private static let cacheKey = "cachedSnapshots"
-
     public private(set) var snapshots: [UUID: UsageSnapshot] = [:]
-    public private(set) var isRefreshing = false
-    public private(set) var lastUpdated: Date?
+    public private(set) var isRefreshing: Bool = false
+    public private(set) var lastUpdated: Date? = nil
 
     private var refreshTask: Task<Void, Never>?
+    private static let cacheKey = "app.seeusage.snapshots.cache"
+
+    public static var sharedCacheURL: URL {
+        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/seeusage", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent("cache.json")
+    }
 
     public var minRemainingPercent: Int? {
         var minVal: Double? = nil
@@ -39,18 +54,38 @@ public final class UsageStore {
         startTimer()
     }
 
-    private func loadCache() {
-        guard let data = UserDefaults.standard.data(forKey: Self.cacheKey),
-              let decoded = try? JSONDecoder().decode([UUID: UsageSnapshot].self, from: data) else {
+    public func loadCache() {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        // 1. Try reading from ~/.config/seeusage/cache.json
+        if let diskData = try? Data(contentsOf: Self.sharedCacheURL),
+           let cached = try? decoder.decode(SharedUsageCache.self, from: diskData) {
+            self.snapshots = cached.snapshots
+            self.lastUpdated = cached.timestamp
+            NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
             return
         }
-        self.snapshots = decoded
-        NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
+
+        // 2. Fallback to UserDefaults
+        if let data = UserDefaults.standard.data(forKey: Self.cacheKey),
+           let decoded = try? decoder.decode([UUID: UsageSnapshot].self, from: data) {
+            self.snapshots = decoded
+            NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
+        }
     }
 
     private func saveCache() {
-        if let encoded = try? JSONEncoder().encode(snapshots) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        if let encoded = try? encoder.encode(snapshots) {
             UserDefaults.standard.set(encoded, forKey: Self.cacheKey)
+        }
+
+        let cacheObj = SharedUsageCache(timestamp: lastUpdated ?? Date(), snapshots: snapshots)
+        if let sharedData = try? encoder.encode(cacheObj) {
+            try? sharedData.write(to: Self.sharedCacheURL, options: .atomic)
         }
     }
 

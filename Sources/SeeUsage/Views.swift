@@ -58,6 +58,49 @@ public final class SettingsWindowManager {
     }
 }
 
+// MARK: - T3 Copy Button (Terminal Quick Copy)
+struct T3CopyButton: View {
+    let command: String
+    let label: String
+    @State private var copied = false
+
+    init(command: String, label: String = "copy") {
+        self.command = command
+        self.label = label
+    }
+
+    var body: some View {
+        Button {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(command, forType: .string)
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                copied = true
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: 1_400_000_000)
+                withAnimation { copied = false }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 8, weight: .bold))
+                Text(copied ? "copied" : label)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+            }
+            .foregroundStyle(copied ? T3Theme.green : T3Theme.textMuted)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(copied ? T3Theme.green.opacity(0.15) : Color.white.opacity(0.04))
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Copiar comando: \(command)")
+    }
+}
+
 // MARK: - T3 Button
 struct T3ToolbarButton: View {
     let icon: String
@@ -372,6 +415,13 @@ struct CodexT3CardView: View {
         return profile.name.lowercased()
     }
 
+    private var exportCommand: String {
+        if let home = profile.homePath {
+            return "export CODEX_HOME=\"\(home)\""
+        }
+        return "unset CODEX_HOME"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Card Title Row
@@ -397,6 +447,9 @@ struct CodexT3CardView: View {
                     .foregroundStyle(T3Theme.textMuted)
 
                 Spacer()
+
+                // Quick Copy export command
+                T3CopyButton(command: exportCommand)
 
                 if let plan = snapshot?.plan {
                     Text("[\(plan.lowercased())]")
@@ -475,6 +528,9 @@ struct AntigravityT3CardView: View {
                     .foregroundStyle(modelBadge.color)
 
                 Spacer()
+
+                // Quick copy command
+                T3CopyButton(command: "agy -p \"/usage\"", label: "usage")
             }
 
             // Quotas

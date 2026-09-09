@@ -77,53 +77,14 @@ struct SeeUsageApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
-        if CommandLine.arguments.contains("--dump") {
+        let args = CommandLine.arguments
+        let isInvokedFromCLI = args.count > 1 || (args.first?.hasSuffix("/seeusage") == true && isatty(fileno(stdout)) != 0)
+
+        if isInvokedFromCLI {
             Task { @MainActor in
-                let settings = SettingsStore.shared
-                print("=== SEEUSAGE LIVE QUOTA DUMP ===")
-                print("Perfis Codex configurados: \(settings.codexProfiles.count)")
-                for p in settings.codexProfiles {
-                    print(" - Perfil: \(p.name) (\(p.homePath ?? ""))")
-                }
-
-                await UsageStore.shared.refresh()
-
-                for profile in settings.codexProfiles {
-                    print("\n--- CODEX: \(profile.name) ---")
-                    if let snap = UsageStore.shared.snapshots[profile.id] {
-                        if let plan = snap.plan {
-                            print("Plano: \(plan)")
-                        }
-                        if let err = snap.error {
-                            print("Erro: \(err)")
-                        }
-                        for w in snap.windows {
-                            let pct = w.remainingPercent.map { "\(Int(round($0)))%" } ?? "--"
-                            let reset = w.resetsAt.map { Formatters.resetDescription(for: $0) } ?? "sem reset"
-                            print(" [\(w.label)] Restante: \(pct) | \(reset)")
-                        }
-                    }
-                }
-
-                let agyID = SettingsStore.antigravityProfileID
-                print("\n--- ANTIGRAVITY ---")
-                if let agySnap = UsageStore.shared.snapshots[agyID] {
-                    if let err = agySnap.error {
-                        print("Erro: \(err)")
-                    }
-                    for w in agySnap.windows {
-                        let pct = w.remainingPercent.map { "\(Int(round($0)))%" } ?? "--"
-                        let reset = w.resetsAt.map { Formatters.resetDescription(for: $0) } ?? "sem reset"
-                        let scope = w.scope ?? "Geral"
-                        print(" [\(scope) - \(w.label)] Restante: \(pct) | \(reset)")
-                    }
-                }
-
-                if let minQuota = UsageStore.shared.minRemainingPercent {
-                    print("\nMenor quota na Menu Bar: \(minQuota)%")
-                }
-                print("================================")
+                _ = await CLIHandler.handle(arguments: args)
                 CFRunLoopStop(CFRunLoopGetMain())
+                exit(0)
             }
             CFRunLoopRun()
             exit(0)

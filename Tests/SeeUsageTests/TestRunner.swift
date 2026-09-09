@@ -54,6 +54,12 @@ final class TestSuiteRunner {
             ProcessRunnerTests().testExecutableResolution()
         }
 
+        runAsync("CLIHandlerTests.testProfileAliasGeneration") {
+            await MainActor.run {
+                CLIHandlerTests().testProfileAliasGeneration()
+            }
+        }
+
         print("\nTest Suite 'SeeUsageTests.xctest' passed at \(Date()).")
         print("\t Executed \(totalTests) tests, with \(failedTests) failures (0 unexpected)")
         print("Test Suite 'All tests' passed at \(Date()).")
@@ -74,32 +80,31 @@ final class TestSuiteRunner {
             print(String(format: "Test Case '-[\(name)]' passed (%.3f seconds).", duration))
             passedTests += 1
         } catch {
-            let duration = Date().timeIntervalSince(start)
-            print(String(format: "Test Case '-[\(name)]' failed (%.3f seconds): %@", duration, error.localizedDescription))
+            print("Test Case '-[\(name)]' failed: \(error)")
             failedTests += 1
         }
     }
 
-    private static func runAsync(_ name: String, block: @escaping @Sendable () async throws -> Void) {
+    private static func runAsync(_ name: String, block: @escaping () async throws -> Void) {
         totalTests += 1
         print("Test Case '-[\(name)]' started.")
         let start = Date()
         let sema = DispatchSemaphore(value: 0)
-        var caughtError: Error? = nil
+        var testError: Error?
 
-        Task.detached {
+        Task {
             do {
                 try await block()
             } catch {
-                caughtError = error
+                testError = error
             }
             sema.signal()
         }
-        sema.wait()
 
+        sema.wait()
         let duration = Date().timeIntervalSince(start)
-        if let err = caughtError {
-            print(String(format: "Test Case '-[\(name)]' failed (%.3f seconds): %@", duration, err.localizedDescription))
+        if let err = testError {
+            print("Test Case '-[\(name)]' failed: \(err)")
             failedTests += 1
         } else {
             print(String(format: "Test Case '-[\(name)]' passed (%.3f seconds).", duration))
@@ -107,14 +112,3 @@ final class TestSuiteRunner {
         }
     }
 }
-
-// Automatically execute tests upon module initialization
-@_cdecl("runSeeUsageTestSuite")
-public func runSeeUsageTestSuite() {
-    TestSuiteRunner.run()
-}
-
-@used
-@section("__DATA,__mod_init_func,mod_init_funcs")
-public let testSuiteRunnerInitPtr: @convention(c) () -> Void = runSeeUsageTestSuite
-
