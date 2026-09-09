@@ -44,7 +44,7 @@ public struct UsageWindow: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
-public struct UsageSnapshot: Identifiable, Sendable {
+public struct UsageSnapshot: Identifiable, Codable, Sendable {
     public var id: UUID { profileID }
     public let profileID: UUID
     public let plan: String?

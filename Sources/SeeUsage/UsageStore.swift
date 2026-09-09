@@ -6,6 +6,8 @@ import Observation
 public final class UsageStore {
     public static let shared = UsageStore()
 
+    private static let cacheKey = "cachedSnapshots"
+
     public private(set) var snapshots: [UUID: UsageSnapshot] = [:]
     public private(set) var isRefreshing = false
     public private(set) var lastUpdated: Date?
@@ -29,7 +31,22 @@ public final class UsageStore {
     }
 
     public init() {
+        loadCache()
         startTimer()
+    }
+
+    private func loadCache() {
+        guard let data = UserDefaults.standard.data(forKey: Self.cacheKey),
+              let decoded = try? JSONDecoder().decode([UUID: UsageSnapshot].self, from: data) else {
+            return
+        }
+        self.snapshots = decoded
+    }
+
+    private func saveCache() {
+        if let encoded = try? JSONEncoder().encode(snapshots) {
+            UserDefaults.standard.set(encoded, forKey: Self.cacheKey)
+        }
     }
 
     public func startTimer() {
@@ -101,6 +118,7 @@ public final class UsageStore {
             }
         }
 
+        saveCache()
         lastUpdated = Date()
     }
 }

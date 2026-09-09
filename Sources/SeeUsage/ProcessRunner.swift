@@ -32,6 +32,40 @@ public enum ProcessRunnerError: LocalizedError, Sendable {
 }
 
 public enum ProcessRunner {
+    public static func defaultEnvironment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let standardPaths = [
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+            "/usr/local/sbin",
+            "\(home)/.local/bin",
+            "\(home)/bin",
+            "/opt/anaconda3/bin",
+            "/opt/anaconda3/condabin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+            "\(home)/.bun/bin",
+            "\(home)/.volta/bin",
+            "\(home)/.cargo/bin"
+        ]
+
+        var currentPaths = (env["PATH"] ?? "").split(separator: ":").map(String.init)
+        for p in standardPaths {
+            if !currentPaths.contains(p) {
+                currentPaths.append(p)
+            }
+        }
+
+        env["PATH"] = currentPaths.joined(separator: ":")
+        env["HOME"] = home
+        env["NO_COLOR"] = "1"
+        return env
+    }
+
     public static func resolveExecutable(named name: String, overridePath: String? = nil) -> String? {
         let fm = FileManager.default
         if let override = overridePath, !override.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -44,7 +78,8 @@ public enum ProcessRunner {
         let home = fm.homeDirectoryForCurrentUser.path
         var candidates: [String] = []
 
-        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
+        let env = defaultEnvironment()
+        if let pathEnv = env["PATH"] {
             for dir in pathEnv.split(separator: ":").map(String.init) {
                 candidates.append("\(dir)/\(name)")
             }
@@ -114,26 +149,30 @@ public enum ProcessRunner {
         process.standardError = stderrPipe
         process.standardInput = stdinPipe
 
-        var env = ProcessInfo.processInfo.environment
+        var env = defaultEnvironment()
         environment.forEach { env[$0.key] = $0.value }
-        env["NO_COLOR"] = "1"
         process.environment = env
 
-        let stdoutStorage = OutputBuffer(marker: completionMarker)
-        let stderrStorage = OutputBuffer(marker: nil)
+        let stdoutData = ThreadSafeData()
+        let stderrData = ThreadSafeData()
 
-        process.terminationHandler = { _ in
-            semaphore.signal()
-        }
+        var markerFound = false
+        let markerLock = NSLock()
 
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
-            if stdoutStorage.append(chunk) {
-                // Marker found, close stdin to signal EOF and terminate process gracefully
-                try? stdinPipe.fileHandleForWriting.close()
-                if process.isRunning {
-                    process.terminate()
+            stdoutData.append(chunk)
+
+            if let marker = completionMarker {
+                markerLock.lock()
+                defer { markerLock.unlock() }
+                if !markerFound {
+                    let text = String(decoding: stdoutData.get(), as: UTF8.self)
+                    if text.contains(marker) {
+                        markerFound = true
+                        try? stdinPipe.fileHandleForWriting.close()
+                    }
                 }
             }
         }
@@ -141,67 +180,65 @@ public enum ProcessRunner {
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
-            _ = stderrStorage.append(chunk)
+            stderrData.append(chunk)
+        }
+
+        process.terminationHandler = { _ in
+            semaphore.signal()
         }
 
         do {
             try process.run()
         } catch {
-            throw ProcessRunnerError.launchFailed(URL(fileURLWithPath: executable).lastPathComponent)
+            throw ProcessRunnerError.launchFailed(executable)
         }
 
-        if let input = input {
-            stdinPipe.fileHandleForWriting.write(input)
-        }
-        if completionMarker == nil {
+        if let inputData = input {
+            try? stdinPipe.fileHandleForWriting.write(contentsOf: inputData)
+            if completionMarker == nil {
+                try? stdinPipe.fileHandleForWriting.close()
+            }
+        } else {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
         let waitResult = semaphore.wait(timeout: .now() + timeout)
+
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
 
         if waitResult == .timedOut {
-            if process.isRunning {
-                process.terminate()
-                _ = semaphore.wait(timeout: .now() + 1)
-            }
-            throw ProcessRunnerError.timedOut(URL(fileURLWithPath: executable).lastPathComponent)
+            process.terminate()
+            throw ProcessRunnerError.timedOut(executable)
         }
 
-        _ = stdoutStorage.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
-        _ = stderrStorage.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+        let remainingStdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        stdoutData.append(remainingStdout)
+
+        let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        stderrData.append(remainingStderr)
 
         return ProcessResult(
-            standardOutput: stdoutStorage.data,
-            standardError: stderrStorage.data,
+            standardOutput: stdoutData.get(),
+            standardError: stderrData.get(),
             terminationStatus: process.terminationStatus
         )
     }
 }
 
-private final class OutputBuffer: @unchecked Sendable {
+private final class ThreadSafeData: @unchecked Sendable {
+    private var data = Data()
     private let lock = NSLock()
-    private let marker: Data?
-    private var buffer = Data()
-    private var markerFound = false
 
-    init(marker: String?) {
-        self.marker = marker.flatMap { $0.data(using: .utf8) }
+    func append(_ newChunk: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        data.append(newChunk)
     }
 
-    var data: Data {
-        lock.withLock { buffer }
-    }
-
-    func append(_ chunk: Data) -> Bool {
-        lock.withLock {
-            buffer.append(chunk)
-            guard !markerFound, let marker = marker, buffer.range(of: marker) != nil else {
-                return false
-            }
-            markerFound = true
-            return true
-        }
+    func get() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
     }
 }

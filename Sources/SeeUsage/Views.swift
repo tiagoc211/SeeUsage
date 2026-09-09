@@ -11,239 +11,406 @@ public struct UsagePopoverView: View {
     public var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("SeeUsage")
-                        .font(.headline)
-                    Text(Formatters.relativeUpdated(for: store.lastUpdated))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Button {
-                    Task { await store.refresh() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
-                        .animation(store.isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: store.isRefreshing)
-                }
-                .buttonStyle(.plain)
-                .help("Atualizar quotas")
-
-                Button {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: "settings")
-                } label: {
-                    Image(systemName: "gearshape")
-                }
-                .buttonStyle(.plain)
-                .help("Definições")
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            headerView
 
             Divider()
 
-            // Main Content Scroll
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    // CODEX SECTION
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("CODEX")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.secondary)
-
-                        if settings.codexProfiles.isEmpty {
-                            Text("Nenhum perfil Codex configurado.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 4)
-                        } else {
-                            ForEach(settings.codexProfiles) { profile in
-                                ProfileBlockView(
-                                    title: profile.name,
-                                    snapshot: store.snapshots[profile.id]
-                                )
-                            }
-                        }
-                    }
-
-                    Divider()
-
-                    // ANTIGRAVITY SECTION
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("ANTIGRAVITY")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.secondary)
-
-                        let agySnapshot = store.snapshots[SettingsStore.antigravityProfileID]
-                        if let err = agySnapshot?.error, agySnapshot?.windows.isEmpty ?? true {
-                            Text(err)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if let snapshot = agySnapshot {
-                            let grouped = Dictionary(grouping: snapshot.windows) { $0.scope ?? "Antigravity" }
-                            let keys = grouped.keys.sorted { lhs, rhs in
-                                if lhs.contains("Gemini") { return true }
-                                if rhs.contains("Gemini") { return false }
-                                return lhs < rhs
-                            }
-
-                            ForEach(keys, id: \.self) { scope in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(scope)
-                                        .font(.system(size: 12, weight: .semibold))
-
-                                    ForEach(grouped[scope] ?? []) { window in
-                                        WindowRowView(window: window)
-                                    }
-                                }
-                                .padding(8)
-                                .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04)))
-                            }
-
-                            if let err = agySnapshot?.error {
-                                Text(err)
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
-                            }
-                        } else {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-                .padding(16)
+            // Main Content
+            if store.snapshots.isEmpty && store.isRefreshing {
+                loadingView
+            } else {
+                contentScrollView
             }
-            .frame(maxHeight: 460)
 
             Divider()
 
             // Footer
-            HStack {
-                Button("Sair") {
-                    NSApplication.shared.terminate(nil)
-                }
-                .buttonStyle(.plain)
-                .font(.caption)
+            footerView
+        }
+        .frame(width: 380)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    // MARK: - Header
+    private var headerView: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "gauge.with.needle.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(Color.accentColor)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("SeeUsage")
+                    .font(.system(size: 14, weight: .bold))
+                Text(Formatters.relativeUpdated(for: store.lastUpdated))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            // Refresh Button
+            Button {
+                Task { await store.refresh() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .semibold))
+                    .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
+                    .animation(
+                        store.isRefreshing
+                            ? .linear(duration: 0.9).repeatForever(autoreverses: false)
+                            : .default,
+                        value: store.isRefreshing
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Atualizar quotas agora")
+
+            // Settings Button
+            Button {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "settings")
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .help("Definições")
+
+            // Quit Button
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Image(systemName: "power")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Fechar SeeUsage")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: - Loading View
+    private var loadingView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.regular)
+            Text("A obter quotas dos perfis...")
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
 
-                Spacer()
+    // MARK: - Content Scroll View
+    private var contentScrollView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                // CODEX SECTION
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "terminal.fill")
+                            .font(.system(size: 10))
+                        Text("CODEX")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundStyle(.secondary)
 
-                if store.isRefreshing {
-                    Text("A atualizar...")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    if settings.codexProfiles.isEmpty {
+                        Text("Nenhum perfil configurado.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 4)
+                    } else {
+                        ForEach(settings.codexProfiles) { profile in
+                            ProfileCardView(
+                                title: profile.name,
+                                iconName: "person.crop.circle",
+                                snapshot: store.snapshots[profile.id]
+                            )
+                        }
+                    }
+                }
+
+                Divider()
+
+                // ANTIGRAVITY SECTION
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 10))
+                        Text("ANTIGRAVITY")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundStyle(.secondary)
+
+                    let agySnapshot = store.snapshots[SettingsStore.antigravityProfileID]
+                    if let err = agySnapshot?.error, agySnapshot?.windows.isEmpty ?? true {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                            Text(err)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(cardBackground)
+                    } else if let snapshot = agySnapshot {
+                        let grouped = Dictionary(grouping: snapshot.windows) { $0.scope ?? "Antigravity" }
+                        let keys = grouped.keys.sorted { lhs, rhs in
+                            if lhs.contains("Gemini") { return true }
+                            if rhs.contains("Gemini") { return false }
+                            return lhs < rhs
+                        }
+
+                        ForEach(keys, id: \.self) { scope in
+                            AntigravityScopeCardView(
+                                scope: scope,
+                                windows: grouped[scope] ?? []
+                            )
+                        }
+
+                        if let err = agySnapshot?.error {
+                            HStack(spacing: 4) {
+                                Image(systemName: "info.circle")
+                                Text(err)
+                            }
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 4)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.vertical, 14)
         }
-        .frame(width: 360)
+        .frame(maxHeight: 480)
+    }
+
+    // MARK: - Footer
+    private var footerView: some View {
+        HStack {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(store.isRefreshing ? Color.orange : Color.green)
+                    .frame(width: 6, height: 6)
+                Text(store.isRefreshing ? "A sincronizar..." : "Pronto")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if let minPct = store.minRemainingPercent {
+                HStack(spacing: 4) {
+                    Text("Menor quota:")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Text("\(minPct)%")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(quotaColor(for: Double(minPct)))
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color(nsColor: .controlBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+            )
     }
 }
 
-struct ProfileBlockView: View {
+// MARK: - Profile Card View (Codex)
+struct ProfileCardView: View {
     let title: String
+    let iconName: String
     let snapshot: UsageSnapshot?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            // Title & Plan Header
+            HStack(alignment: .center) {
+                HStack(spacing: 6) {
+                    Image(systemName: iconName)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                }
+
                 Spacer()
+
                 if let plan = snapshot?.plan {
                     Text(plan)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 9.5, weight: .bold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                        .background(Capsule().fill(Color.accentColor.opacity(0.12)))
                         .foregroundStyle(Color.accentColor)
                 }
             }
 
+            // Body
             if let err = snapshot?.error, snapshot?.windows.isEmpty ?? true {
-                Text(err)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else if let windows = snapshot?.windows, !windows.isEmpty {
-                ForEach(windows) { window in
-                    WindowRowView(window: window)
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10))
+                    Text(err)
+                        .font(.system(size: 11))
                 }
+                .foregroundStyle(.orange)
+                .padding(.vertical, 2)
+            } else if let windows = snapshot?.windows, !windows.isEmpty {
+                VStack(spacing: 6) {
+                    ForEach(windows) { window in
+                        QuotaRowView(window: window)
+                    }
+                }
+
                 if let err = snapshot?.error {
                     Text(err)
-                        .font(.caption2)
+                        .font(.system(size: 9.5))
                         .foregroundStyle(.orange)
                 }
             } else {
                 ProgressView()
-                    .scaleEffect(0.7)
+                    .scaleEffect(0.6)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04)))
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                )
+        )
     }
 }
 
-struct WindowRowView: View {
+// MARK: - Antigravity Scope Card
+struct AntigravityScopeCardView: View {
+    let scope: String
+    let windows: [UsageWindow]
+
+    private var scopeIcon: String {
+        if scope.contains("Gemini") { return "sparkles" }
+        return "cpu"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: scopeIcon)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(scope)
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+            }
+
+            VStack(spacing: 6) {
+                ForEach(windows) { window in
+                    QuotaRowView(window: window)
+                }
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                )
+        )
+    }
+}
+
+// MARK: - Quota Row View (Pixel-Perfect Column Alignment)
+struct QuotaRowView: View {
     let window: UsageWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 8) {
+                // Column 1: Window Label (Fixed 48pt)
                 Text(window.label)
-                    .font(.system(size: 11))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 48, alignment: .leading)
 
-                UsageBar(percent: window.remainingPercent ?? 0)
+                // Column 2: Progress Bar (Expands evenly)
+                ModernProgressBar(percent: window.remainingPercent ?? 0)
+                    .frame(height: 7)
 
+                // Column 3: Percentage (Fixed 42pt)
                 Text(window.remainingPercent.map { "\(Int(round($0)))%" } ?? "--")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .frame(width: 36, alignment: .trailing)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(quotaColor(for: window.remainingPercent))
+                    .frame(width: 42, alignment: .trailing)
             }
 
+            // Reset Subtitle (Indented by label width + spacing = 56pt)
             if let reset = window.resetsAt {
-                Text(Formatters.resetDescription(for: reset))
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 48)
+                HStack(spacing: 3) {
+                    Color.clear
+                        .frame(width: 48 + 8, height: 1)
+
+                    Image(systemName: "clock")
+                        .font(.system(size: 8.5))
+                    Text(Formatters.resetDescription(for: reset))
+                        .font(.system(size: 9.5))
+                }
+                .foregroundStyle(.tertiary)
             }
         }
     }
 }
 
-struct UsageBar: View {
+// MARK: - Modern Progress Bar
+struct ModernProgressBar: View {
     let percent: Double
-
-    private var barColor: Color {
-        if percent <= 15 { return .red }
-        if percent <= 35 { return .orange }
-        return .accentColor
-    }
 
     var body: some View {
         GeometryReader { geo in
+            let clamped = max(0.0, min(100.0, percent))
+            let fillWidth = geo.size.width * CGFloat(clamped / 100.0)
+
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Color.primary.opacity(0.12))
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(barColor)
-                    .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(percent / 100.0))))
+                Capsule()
+                    .fill(Color.primary.opacity(0.08))
+
+                Capsule()
+                    .fill(quotaColor(for: clamped))
+                    .frame(width: max(fillWidth, clamped > 0 ? 3 : 0))
             }
         }
-        .frame(height: 6)
     }
 }
 
+func quotaColor(for percent: Double?) -> Color {
+    guard let pct = percent else { return .secondary }
+    if pct <= 15 { return .red }
+    if pct <= 35 { return .orange }
+    return Color.accentColor
+}
+
+// MARK: - Settings View
 public struct SettingsView: View {
     @Bindable var settings = SettingsStore.shared
-    @State private var newProfileName = ""
     @State private var editingID: UUID?
     @State private var editName = ""
 
@@ -251,27 +418,24 @@ public struct SettingsView: View {
 
     public var body: some View {
         Form {
-            Section(header: Text("Perfis Codex").font(.headline)) {
+            Section {
                 List {
                     ForEach(settings.codexProfiles) { profile in
                         HStack {
                             if editingID == profile.id {
                                 TextField("Nome", text: $editName)
                                     .textFieldStyle(.roundedBorder)
-                                    .onSubmit {
-                                        settings.renameProfile(id: profile.id, newName: editName)
-                                        editingID = nil
-                                    }
                                 Button("Guardar") {
                                     settings.renameProfile(id: profile.id, newName: editName)
                                     editingID = nil
                                 }
+                                .buttonStyle(.borderedProminent)
                             } else {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(profile.name)
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text(profile.homePath ?? "")
-                                        .font(.caption2)
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text(profile.homePath ?? "Padrão (~/.codex)")
+                                        .font(.system(size: 10))
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -282,28 +446,29 @@ public struct SettingsView: View {
                                     Image(systemName: "pencil")
                                 }
                                 .buttonStyle(.plain)
-                                .help("Renomear perfil")
 
                                 Button {
                                     settings.removeProfile(id: profile.id)
                                 } label: {
                                     Image(systemName: "trash")
+                                        .foregroundStyle(.red)
                                 }
                                 .buttonStyle(.plain)
-                                .help("Remover da SeeUsage")
                             }
                         }
                         .padding(.vertical, 2)
                     }
                 }
-                .frame(height: 120)
+                .frame(minHeight: 120)
 
                 Button("+ Adicionar perfil Codex...") {
                     chooseCodexHome()
                 }
+            } header: {
+                Text("Perfis Codex").font(.headline)
             }
 
-            Section(header: Text("Executáveis").font(.headline)) {
+            Section {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Codex:")
@@ -318,20 +483,24 @@ public struct SettingsView: View {
                             .textFieldStyle(.roundedBorder)
                     }
                 }
+            } header: {
+                Text("Caminhos dos Executáveis").font(.headline)
             }
 
-            Section(header: Text("Atualização").font(.headline)) {
-                Picker("Intervalo de refresh:", selection: $settings.refreshIntervalMinutes) {
+            Section {
+                Picker("Intervalo de atualização:", selection: $settings.refreshIntervalMinutes) {
                     Text("5 minutos").tag(5)
                     Text("10 minutos").tag(10)
                     Text("15 minutos").tag(15)
                     Text("30 minutos").tag(30)
                 }
                 .pickerStyle(.menu)
+            } header: {
+                Text("Atualização Automática").font(.headline)
             }
         }
         .padding(20)
-        .frame(width: 440, height: 380)
+        .frame(width: 460, height: 400)
     }
 
     private func chooseCodexHome() {
@@ -351,6 +520,7 @@ public struct SettingsView: View {
     }
 }
 
+// MARK: - Formatters
 public enum Formatters {
     public static func resetDescription(for date: Date) -> String {
         let now = Date()
