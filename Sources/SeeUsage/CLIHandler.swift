@@ -42,6 +42,12 @@ public enum CLIHandler {
             return true
         }
 
+        // Interactive TUI Watch Mode
+        if args.contains("watch") || args.contains("--watch") || args.contains("-w") {
+            await WatchDashboard.run()
+            return true
+        }
+
         // List themes
         if args.contains("themes") || args.contains("--themes") {
             printThemes()
@@ -500,6 +506,7 @@ public enum CLIHandler {
 
         \(bold("USAGE:"))
           seeusage [options]
+          seeusage watch
           seeusage settings
           seeusage themes
           seeusage theme <id>
@@ -509,6 +516,7 @@ public enum CLIHandler {
           seeusage --json
 
         \(bold("OPTIONS:"))
+          watch, -w           Live interactive terminal dashboard with countdown to the second
           -m, --mini          Compact one-line output (ideal for Starship / Zsh RPROMPT / tmux)
           -c, --cached        Read instantaneous cached quota from ~/.config/seeusage/cache.json
           -r, --refresh       Force a live refresh against codex app-server and agy CLI
@@ -524,6 +532,7 @@ public enum CLIHandler {
 
         \(bold("EXAMPLES:"))
           $ seeusage                     # Full interactive dashboard table
+          $ seeusage watch               # Real-time interactive TUI with live second countdown
           $ seeusage settings            # Open settings window with theme picker
           $ seeusage themes              # Show all themes (Emerald, Ocean, Grove, etc.)
           $ seeusage theme grove         # Activate Grove theme

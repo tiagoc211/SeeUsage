@@ -43,6 +43,7 @@ Claude and GPT
 
 - **Multi-Profile Codex**: Simultaneously queries multiple profiles (`~/.codex-profiles/*` and `~/.codex`) with independent plans without modifying active terminal accounts or touching `auth.json`.
 - **Antigravity**: Queries active `agy` CLI credentials (`/usage`), supporting all model families (Gemini, Claude, GPT).
+- **Interactive Terminal Dashboard (`seeusage watch`)**: Fullscreen real-time TUI (htop/btop-style) with countdown to the exact second until reset (`Reset in 02:44:19`), interactive hotkeys (`r` to refresh, `t` to cycle themes, `m` to change menu bar mode, `q` to quit), and zero screen flicker.
 - **Customizable Menu Bar Item**: Choose between 4 display modes:
   - **Lowest Quota**: Icon + lowest percentage (e.g. `⚡ 47%`).
   - **Dual Quotas**: Codex and Antigravity side by side (e.g. `cx: 92% · ag: 81%`).
@@ -130,6 +131,7 @@ open ~/Applications/SeeUsage.app
 
 ```bash
 seeusage                     # Full interactive dashboard table
+seeusage watch               # Real-time interactive TUI with live second countdown (htop-style)
 seeusage settings            # Open preferences window
 seeusage themes              # List available themes
 seeusage theme ocean         # Activate Ocean theme

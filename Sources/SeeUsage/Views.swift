@@ -1571,6 +1571,22 @@ public struct SettingsView: View {
                 }
 
                 HStack {
+                    Text("$ seeusage watch")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textPrimary)
+                    Spacer()
+                    T3CopyButton(command: "seeusage watch", label: "copy")
+                }
+
+                HStack {
+                    Text("$ seeusage mode")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textPrimary)
+                    Spacer()
+                    T3CopyButton(command: "seeusage mode", label: "copy")
+                }
+
+                HStack {
                     Text("$ seeusage --json")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(settings.currentTheme.textPrimary)
