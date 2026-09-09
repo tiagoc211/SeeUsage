@@ -1,179 +1,114 @@
 # SeeUsage
 
-A native macOS menu bar app and CLI that monitors and displays, in a single place, the quotas and rate limits across multiple **Codex** profiles (`CODEX_HOME`) and **Antigravity** (`agy`).
-
-<h2 align="center">Demo</h2>
+A lightweight macOS menu bar app and CLI for tracking AI coding quotas across Codex profiles and Antigravity.
 
 <p align="center">
-  <a href="assets/seeusage-demo.mp4">
-    <img src="assets/seeusage-demo.gif" alt="SeeUsage showing Codex profile quotas, refreshing usage, and scrolling to Gemini and Claude quotas in its native macOS panel." width="900" />
-  </a>
-</p>
-<p align="center">
-  Real SeeUsage interface · 13 seconds · <a href="assets/seeusage-demo.mp4">Watch the MP4</a>
+  <img src="./assets/seeusage-demo.gif" alt="SeeUsage demo" width="850">
 </p>
 
-```text
-SeeUsage                     ↻  ⚙
-Updated just now
+## What is SeeUsage?
 
-CODEX
-
-Personal                      Plus
-5 h        █████████░   90%
-           Resets in 4h 42m
-
-7 days     ██████░░░░   62%
-           Resets Sunday at 20:56
-
-Work                          Plus
-5 h        ░░░░░░░░░░    1%
-           Resets in 25m
-
-7 days     █████░░░░░   53%
-           Resets Sunday at 21:17
-
-ANTIGRAVITY
-
-Gemini
-5 h        ██████░░░░   63%
-           Resets in 1h 2m
-7 days     ████████░░   84%
-           Resets Monday at 03:47
-
-Claude and GPT
-5 h        ██████████  100%
-           Resets in 3h 55m
-7 days     ██████████  100%
-           Resets Wednesday at 03:40
-```
-
----
+SeeUsage monitors your remaining AI coding allowances across local CLI accounts in a single, glanceable interface. It tracks 5-hour session limits and 7-day weekly quotas for both Codex (including multiple isolated profiles) and Antigravity. Live countdowns display exactly when limits reset, helping you balance work across accounts without hitting unexpected rate limits mid-task.
 
 ## Features
 
-- **Multi-Profile Codex**: Simultaneously queries multiple profiles (`~/.codex-profiles/*` and `~/.codex`) with independent plans without modifying active terminal accounts or touching `auth.json`.
-- **Antigravity**: Queries active `agy` CLI credentials (`/usage`), supporting all model families (Gemini, Claude, GPT).
-- **Interactive Terminal Dashboard (`seeusage watch`)**: Fullscreen real-time TUI (htop/btop-style) with countdown to the exact second until reset (`Reset in 02:44:19`), interactive hotkeys (`r` to refresh, `t` to cycle themes, `m` to change menu bar mode, `q` to quit), and zero screen flicker.
-- **Customizable Menu Bar Item**: Choose between 4 display modes:
-  - **Lowest Quota**: Icon + lowest percentage (e.g. `⚡ 47%`).
-  - **Dual Quotas**: Codex and Antigravity side by side (e.g. `cx: 92% · ag: 81%`).
-  - **Mini Gauge**: High-resolution graphic micro progress bar in the menu bar.
-  - **Icon Only**: Minimalist status dot tinted by quota health (Green / Amber / Red).
-- **Launch at Login**: Native macOS service (`SMAppService`) toggle to start automatically on login.
-- **Native macOS Notifications & Alerts**: Custom system alerts when any quota drops below a critical threshold (e.g. `<= 15%`) and instant alerts when quotas reset and recover back to 100%.
-- **Dynamic Themes & Palettes**: Includes 10 customizable terminal themes (Emerald, Ocean, Grove, Iris, Ember, Tokyo Night, Matrix Cyber, Palenight, Dracula, Solarized Dark) with instant live preview.
-- **Settings Sidebar Window**: Modern preferences interface to manage profiles, themes, custom executable paths, and polling intervals.
-- **Fast CLI Integration**: `seeusage` commands for shell prompts (`--mini`), full status table, themes management, and `CODEX_HOME` switcher scripts.
-- **100% Private & Local**: Zero credentials or tokens are saved, copied, or transmitted. No telemetry or external server tracking.
+- **Codex multi-profile tracking**: Simultaneously queries quotas across `~/.codex` and `~/.codex-profiles/*` without switching active accounts or reading credentials.
+- **Antigravity quota monitoring**: Reads active `agy` rate limits across model families (Gemini, Claude, GPT).
+- **Customizable menu bar**: Choose between Lowest Quota (`⚡ 47%`), Dual Quotas (`cx: 92% · ag: 81%`), Mini Gauge, or Icon Only, with color-coded quota health.
+- **Interactive watch dashboard (`seeusage watch`)**: Real-time terminal TUI with second-by-second countdowns to quota resets and theme switching.
+- **Native system notifications**: Custom alerts when any quota drops below a configurable threshold and when limits reset back to 100%.
+- **Fast shell prompt integration**: Instant cached one-liner (`seeusage --mini --cached`) for Starship, Zsh, and tmux prompts, plus JSON output (`--json`).
+- **Local and private**: Runs entirely on your machine. Never stores, reads, or transmits tokens or authentication secrets.
 
----
+## Installation
 
-## Requirements
-
-- macOS 14.0+ (Sonoma or newer)
-- Apple Silicon or Intel
-- Codex CLI (`codex`) installed
-- Antigravity CLI (`agy`) installed
-- Dedicated Conda environment: `seeu` (or system Swift 5.9+)
-
----
-
-## How It Works
-
-### Codex
-SeeUsage temporarily spawns an isolated Codex process for each configured profile:
-```bash
-CODEX_HOME="/path/to/profile" codex app-server --stdio
-```
-It communicates via JSON-RPC (`initialize` → `initialized` → `account/rateLimits/read`), extracts session and weekly limits, and immediately terminates the subprocess. No credentials (`auth.json`) are read or modified directly.
-
-### Antigravity
-SeeUsage executes the official read-only CLI command:
-```bash
-agy -p "/usage" --output-format text --print-timeout 30s
-```
-It parses structured quota lines for each model group and computes remaining percentages without consuming any inference tokens.
-
----
-
-## Development & Testing
-
-Development and tests run through the `seeu` Conda environment:
+Clone the repository and run the installation script:
 
 ```bash
-# Activate conda environment
-conda activate seeu
-
-# Compile in debug mode
-conda run -n seeu swift build
-
-# Run unit tests
-conda run -n seeu swift test
-
-# Compile in release mode
-conda run -n seeu swift build -c release
-
-# Inspect CLI dashboard
-conda run -n seeu swift run SeeUsage
-```
-
----
-
-## Packaging & Installation
-
-### Build macOS App Bundle (`dist/SeeUsage.app`)
-```bash
-./scripts/build_app.sh
-```
-
-### Install into `~/Applications`
-```bash
+git clone https://github.com/tiagoc211/SeeUsage.git
+cd SeeUsage
 ./scripts/install.sh
 ```
 
-Once installed, launch the application:
+This compiles the release binary, installs `SeeUsage.app` into `~/Applications`, and links the `seeusage` CLI command to `~/.local/bin/seeusage`.
+
+To start the menu bar app:
+
 ```bash
 open ~/Applications/SeeUsage.app
 ```
 
----
+## Requirements
+
+- macOS 14.0 (Sonoma) or newer
+- Swift 5.9+ or Xcode Command Line Tools
+- [Codex CLI](https://github.com/openai/codex) (`codex`) installed and authenticated (optional, for Codex tracking)
+- [Antigravity CLI](https://github.com/google/antigravity) (`agy`) installed and authenticated (optional, for Antigravity tracking)
 
 ## CLI Usage
 
 ```bash
-seeusage                     # Full interactive dashboard table
-seeusage watch               # Real-time interactive TUI with live second countdown (htop-style)
-seeusage settings            # Open preferences window
-seeusage themes              # List available themes
-seeusage theme ocean         # Activate Ocean theme
-seeusage mode                # List menu bar display styles
-seeusage mode dual           # Switch menu bar to Dual Quotas (cx + ag)
-seeusage notify              # View notification preferences & threshold
+seeusage                     # Display formatted quota table for all accounts
+seeusage watch               # Live interactive TUI with real-time countdown to reset
+seeusage settings            # Open macOS preferences window
+seeusage themes              # List available terminal themes
+seeusage theme ocean         # Apply a terminal theme (e.g. emerald, ocean, tokyo-night)
+seeusage mode dual           # Set menu bar style (percent, dual, gauge, iconOnly)
 seeusage notify test         # Send an instant test notification
-seeusage notify 10           # Set critical alert threshold to 10%
-seeusage --mini --cached     # Lightweight one-liner for shell prompt (Starship/Zsh)
-seeusage --json              # Output metrics formatted as JSON
-seeusage --shell-init        # Generate shell wrapper functions for ~/.zshrc
+seeusage notify 15           # Set low-quota notification threshold to 15%
+seeusage --mini --cached     # Fast one-liner for shell prompts (reads local cache)
+seeusage --json              # Output quota data as JSON
+seeusage --export <profile>  # Print export CODEX_HOME=... command for shell switching
 ```
 
----
+## How It Works
 
-## Privacy & Security
+SeeUsage communicates with official CLI tools already authenticated on your system:
 
-- **Zero Credential Storage**: SeeUsage never reads, persists, or transmits OAuth tokens, passwords, or authentication keys.
-- **Secure Local Delegation**: All data retrieval delegates strictly to official CLI binaries installed on your system.
-- **No Telemetry**: No analytics, background trackers, or unauthorized network calls.
+- **Codex**: Spawns an isolated `codex app-server --stdio` process for each configured profile path and requests rate limits via JSON-RPC (`account/rateLimits/read`). It never accesses `auth.json` directly.
+- **Antigravity**: Runs `agy -p "/usage" --output-format text` to read active quota metrics and reset timestamps without consuming inference tokens.
+- **Caching**: Aggregated metrics are stored in `~/.config/seeusage/cache.json` for zero-latency prompt queries and instant popover rendering.
 
----
+## Development
 
-## Troubleshooting
+```bash
+# Build debug executable
+swift build
 
-- **"Codex CLI not found"**:
-  Ensure `codex` is installed (e.g. `/opt/homebrew/bin/codex`). You can specify a custom binary path in **Settings → Executables**.
-- **"Antigravity CLI not found"**:
-  Ensure `agy` is in your PATH (e.g. `~/.local/bin/agy`). You can configure the path in **Settings → Executables**.
-- **"Codex profile not authenticated"**:
-  Open your terminal and run `CODEX_HOME="/path/to/profile" codex login` to log in.
-- **"Log in to Antigravity CLI"**:
-  Run `agy` in your terminal to authenticate.
+# Run the CLI directly
+swift run SeeUsage
+
+# Run the interactive watch dashboard
+swift run SeeUsage watch
+
+# Package the release macOS application bundle (dist/SeeUsage.app)
+./scripts/build_app.sh
+```
+
+## Project Structure
+
+```text
+Sources/
+  SeeUsage/
+    SeeUsageApp.swift         # Menu bar status item, popover lifecycle, and entry point
+    Views.swift               # SwiftUI menu bar popover and preferences window
+    UsageStore.swift          # Quota polling, aggregation, and caching
+    CodexClient.swift         # JSON-RPC client for codex app-server
+    AntigravityClient.swift   # Parser for agy usage output
+    CLIHandler.swift          # Terminal output, shell integration, and subcommands
+    WatchDashboard.swift      # Interactive terminal TUI dashboard (seeusage watch)
+    NotificationManager.swift # Threshold-based notifications and reset alerts
+    Theme.swift               # Color palettes for UI and terminal rendering
+scripts/
+  build_app.sh                # Compiles and bundles dist/SeeUsage.app
+  install.sh                  # Builds and installs to ~/Applications and ~/.local/bin
+assets/                       # Demo media and screen recordings
+```
+
+## Contributing
+
+Contributions, bug reports, and feature suggestions are welcome. Feel free to open an issue or submit a pull request.
+
+## License
+
+This repository does not currently contain a license file. See [Issues](https://github.com/tiagoc211/SeeUsage/issues) to inquire about licensing.

@@ -4,6 +4,11 @@
   "version": "1.0.0",
   "description": "Isolated Remotion tooling for the SeeUsage README demo",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tiagoc211/SeeUsage.git"
+  },
+  "homepage": "https://github.com/tiagoc211/SeeUsage",
   "scripts": {
     "capture": "node capture.mjs",
     "studio": "remotion studio src/index.jsx --public-dir=../assets",

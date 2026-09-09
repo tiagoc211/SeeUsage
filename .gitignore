@@ -6,3 +6,6 @@ DerivedData/
 .swiftpm/
 auth.json
 *.log
+.env
+.env.*
+node_modules/
