@@ -9,6 +9,10 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DEST_DIR="${HOME}/Applications"
 mkdir -p "${DEST_DIR}"
 
+# Terminate existing running instances so new binary takes over immediately
+killall -9 SeeUsage seeusage 2>/dev/null || true
+rm -f "${HOME}/.config/seeusage/app.lock"
+
 echo "==> Installing SeeUsage.app to ${DEST_DIR}..."
 rm -rf "${DEST_DIR}/SeeUsage.app"
 cp -R "${ROOT_DIR}/dist/SeeUsage.app" "${DEST_DIR}/"
