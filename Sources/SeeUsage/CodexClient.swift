@@ -14,9 +14,9 @@ public enum CodexClient {
         }
 
         let requests = [
-            #"{"id":1,"method":"initialize","params":{"clientInfo":{"name":"seeusage","version":"1.0"}}}"#,
-            #"{"method":"initialized","params":{}}"#,
-            #"{"id":2,"method":"account/rateLimits/read"}"#
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"SeeUsage","version":"1.0.0"}}}"#,
+            #"{"jsonrpc":"2.0","method":"initialized","params":{}}"#,
+            #"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{}}"#
         ].joined(separator: "\n") + "\n"
 
         do {

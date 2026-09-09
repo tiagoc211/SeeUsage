@@ -1,10 +1,38 @@
 import SwiftUI
 import AppKit
 
+@MainActor
+public final class SettingsWindowManager {
+    public static let shared = SettingsWindowManager()
+    private var window: NSWindow?
+
+    public func show() {
+        if let win = window {
+            win.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let hosting = NSHostingController(rootView: SettingsView())
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 490),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "Definições SeeUsage"
+        win.contentViewController = hosting
+        win.center()
+        win.isReleasedWhenClosed = false
+        self.window = win
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
 public struct UsagePopoverView: View {
-    @Environment(\.openWindow) private var openWindow
-    @State private var store = UsageStore.shared
-    @State private var settings = SettingsStore.shared
+    private var store = UsageStore.shared
+    private var settings = SettingsStore.shared
 
     public init() {}
 
@@ -72,8 +100,7 @@ public struct UsagePopoverView: View {
 
             // Settings Button
             Button {
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "settings")
+                SettingsWindowManager.shared.show()
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12, weight: .semibold))
@@ -106,6 +133,7 @@ public struct UsagePopoverView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+        .frame(minHeight: 280)
         .padding(.vertical, 40)
     }
 
@@ -202,8 +230,10 @@ public struct UsagePopoverView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxHeight: 480)
+        .frame(width: 380)
+        .frame(minHeight: 280, maxHeight: 480)
     }
 
     // MARK: - Footer
@@ -410,13 +440,16 @@ struct ModernProgressBar: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.primary.opacity(0.08))
+                    .fill(Color.primary.opacity(0.12))
+                    .frame(height: 7)
 
                 Capsule()
                     .fill(quotaColor(for: clamped))
-                    .frame(width: max(fillWidth, clamped > 0 ? 3 : 0))
+                    .frame(width: max(fillWidth, clamped > 0 ? 4 : 0), height: 7)
             }
         }
+        .frame(minWidth: 80)
+        .frame(height: 7)
     }
 }
 

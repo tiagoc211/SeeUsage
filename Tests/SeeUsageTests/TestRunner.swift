@@ -1,6 +1,5 @@
 import Foundation
 
-@MainActor
 final class TestSuiteRunner {
     static var totalTests = 0
     static var passedTests = 0
@@ -88,7 +87,7 @@ final class TestSuiteRunner {
         let sema = DispatchSemaphore(value: 0)
         var caughtError: Error? = nil
 
-        Task {
+        Task.detached {
             do {
                 try await block()
             } catch {
@@ -110,8 +109,12 @@ final class TestSuiteRunner {
 }
 
 // Automatically execute tests upon module initialization
-private let _runAllTestsOnce: Void = {
-    Task { @MainActor in
-        TestSuiteRunner.run()
-    }
-}()
+@_cdecl("runSeeUsageTestSuite")
+public func runSeeUsageTestSuite() {
+    TestSuiteRunner.run()
+}
+
+@used
+@section("__DATA,__mod_init_func,mod_init_funcs")
+public let testSuiteRunnerInitPtr: @convention(c) () -> Void = runSeeUsageTestSuite
+

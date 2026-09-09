@@ -41,7 +41,8 @@ public final class SettingsStore {
         self.antigravityExecutableOverride = defaults.string(forKey: "antigravityExecutableOverride") ?? ""
 
         if let data = defaults.data(forKey: "codexProfiles"),
-           let profiles = try? JSONDecoder().decode([UsageProfile].self, from: data) {
+           let profiles = try? JSONDecoder().decode([UsageProfile].self, from: data),
+           !profiles.isEmpty {
             self.codexProfiles = profiles
         } else {
             self.codexProfiles = Self.discoverCodexProfiles()
@@ -58,13 +59,16 @@ public final class SettingsStore {
     }
 
     public func addProfile(name: String, path: String) {
+        let cleanedPath = path.trimmingCharacters(in: .whitespaces)
         let profile = UsageProfile(
-            id: UUID(),
+            id: UUIDHelper.deterministic(for: "codex:\(cleanedPath)"),
             provider: .codex,
             name: name.trimmingCharacters(in: .whitespaces),
-            homePath: path.trimmingCharacters(in: .whitespaces)
+            homePath: cleanedPath
         )
-        codexProfiles.append(profile)
+        if !codexProfiles.contains(where: { $0.id == profile.id }) {
+            codexProfiles.append(profile)
+        }
     }
 
     public func removeProfile(id: UUID) {
@@ -90,7 +94,7 @@ public final class SettingsStore {
                 if fm.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue {
                     if isCodexHome(path: fullPath) {
                         discovered.append(UsageProfile(
-                            id: UUID(),
+                            id: UUIDHelper.deterministic(for: "codex:\(fullPath)"),
                             provider: .codex,
                             name: item.capitalized,
                             homePath: fullPath
@@ -104,7 +108,7 @@ public final class SettingsStore {
             let defaultCodex = "\(home)/.codex"
             if fm.fileExists(atPath: defaultCodex) && isCodexHome(path: defaultCodex) {
                 discovered.append(UsageProfile(
-                    id: UUID(),
+                    id: UUIDHelper.deterministic(for: "codex:\(defaultCodex)"),
                     provider: .codex,
                     name: "Principal",
                     homePath: defaultCodex

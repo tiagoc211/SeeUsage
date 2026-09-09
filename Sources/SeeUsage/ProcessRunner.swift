@@ -68,13 +68,21 @@ public enum ProcessRunner {
 
     public static func resolveExecutable(named name: String, overridePath: String? = nil) -> String? {
         let fm = FileManager.default
-        if let override = overridePath, !override.trimmingCharacters(in: .whitespaces).isEmpty {
+        if let override = overridePath?.trimmingCharacters(in: .whitespaces), !override.isEmpty {
             let expanded = (override as NSString).expandingTildeInPath
             if fm.isExecutableFile(atPath: expanded) {
                 return expanded
             }
+            if let found = findInKnownPaths(named: override) {
+                return found
+            }
         }
 
+        return findInKnownPaths(named: name)
+    }
+
+    private static func findInKnownPaths(named name: String) -> String? {
+        let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.path
         var candidates: [String] = []
 
@@ -169,9 +177,10 @@ public enum ProcessRunner {
                 defer { markerLock.unlock() }
                 if !markerFound {
                     let text = String(decoding: stdoutData.get(), as: UTF8.self)
-                    if text.contains(marker) {
+                    if text.contains(marker) || (marker == #""id":2"# && text.contains(#""id": 2"#)) {
                         markerFound = true
                         try? stdinPipe.fileHandleForWriting.close()
+                        process.terminate()
                     }
                 }
             }

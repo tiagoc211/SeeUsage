@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 
+extension Notification.Name {
+    public static let usageStoreDidUpdate = Notification.Name("usageStoreDidUpdate")
+}
+
 @Observable
 @MainActor
 public final class UsageStore {
@@ -41,6 +45,7 @@ public final class UsageStore {
             return
         }
         self.snapshots = decoded
+        NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
     }
 
     private func saveCache() {
@@ -75,8 +80,6 @@ public final class UsageStore {
         let codexProfiles = settings.codexProfiles
         let agyProfileID = SettingsStore.antigravityProfileID
 
-        var newSnapshots: [UUID: UsageSnapshot] = [:]
-
         await withTaskGroup(of: (UUID, UsageSnapshot).self) { group in
             // Codex profiles
             for profile in codexProfiles {
@@ -99,26 +102,21 @@ public final class UsageStore {
             }
 
             for await (id, snapshot) in group {
-                newSnapshots[id] = snapshot
+                if let err = snapshot.error, let old = self.snapshots[id], !old.windows.isEmpty {
+                    self.snapshots[id] = UsageSnapshot(
+                        profileID: id,
+                        plan: old.plan,
+                        windows: old.windows,
+                        fetchedAt: old.fetchedAt,
+                        error: "\(err) (Desatualizado)"
+                    )
+                } else {
+                    self.snapshots[id] = snapshot
+                }
+                self.saveCache()
+                self.lastUpdated = Date()
+                NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
             }
         }
-
-        // Preserve previous windows if new fetch returned an error (fallback to cached data)
-        for (id, newSnapshot) in newSnapshots {
-            if let err = newSnapshot.error, let old = snapshots[id], !old.windows.isEmpty {
-                snapshots[id] = UsageSnapshot(
-                    profileID: id,
-                    plan: old.plan,
-                    windows: old.windows,
-                    fetchedAt: old.fetchedAt,
-                    error: "\(err) (Desatualizado)"
-                )
-            } else {
-                snapshots[id] = newSnapshot
-            }
-        }
-
-        saveCache()
-        lastUpdated = Date()
     }
 }
