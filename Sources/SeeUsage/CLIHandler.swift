@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 @MainActor
 public enum CLIHandler {
@@ -38,6 +39,41 @@ public enum CLIHandler {
         // Help
         if args.contains("-h") || args.contains("--help") {
             printHelp()
+            return true
+        }
+
+        // List themes
+        if args.contains("themes") || args.contains("--themes") {
+            printThemes()
+            return true
+        }
+
+        // Set theme
+        if let themeIdx = args.firstIndex(of: "theme") ?? args.firstIndex(of: "--theme") {
+            if themeIdx + 1 < args.count {
+                let themeID = args[themeIdx + 1]
+                setTheme(id: themeID)
+                return true
+            } else {
+                printThemes()
+                return true
+            }
+        }
+
+        // Open Settings Window
+        if args.contains("settings") || args.contains("--settings") || args.contains("config") {
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.openSettings"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+            let appPath = NSString(string: "~/Applications/SeeUsage.app").expandingTildeInPath
+            if FileManager.default.fileExists(atPath: appPath) {
+                let url = URL(fileURLWithPath: appPath)
+                _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+            }
+            print("\n" + green("✓") + " Janela de Definições aberta.\n")
             return true
         }
 
@@ -94,6 +130,34 @@ public enum CLIHandler {
         return true
     }
 
+    // MARK: - Themes CLI Support
+    private static func printThemes() {
+        let settings = SettingsStore.shared
+        print("\n" + bold("// SEEUSAGE THEMES & PALETTES") + " (Dark Terminal Design System)\n")
+        for category in ["Core Themes", "Developer Classics"] {
+            print("  " + dim("// \(category.uppercased())"))
+            let themes = ThemeRegistry.allThemes.filter { $0.category == category }
+            for t in themes {
+                let isCurrent = settings.selectedThemeID == t.id
+                let mark = isCurrent ? green("[✓ ATIVO]") : dim("[     ]")
+                let idStr = cyan(t.id.padding(toLength: 14, withPad: " ", startingAt: 0))
+                let nameStr = bold(t.name.padding(toLength: 16, withPad: " ", startingAt: 0))
+                let tagStr = dim(t.tagline)
+                print("    \(mark) \(idStr) \(nameStr) \(tagStr)")
+            }
+            print("")
+        }
+        print("  Use: " + bold("seeusage theme <id>") + " para ativar um tema via terminal.")
+        print("")
+    }
+
+    private static func setTheme(id: String) {
+        let cleanID = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let theme = ThemeRegistry.theme(for: cleanID)
+        SettingsStore.shared.selectTheme(theme.id)
+        print("\n" + green("✓") + " Tema " + bold(theme.name) + " (\(theme.id)) ativado com sucesso!\n")
+    }
+
     // MARK: - Mini Output (One-liner for Prompts)
     private static func printMini(store: UsageStore, settings: SettingsStore) {
         var segments: [String] = []
@@ -118,66 +182,72 @@ public enum CLIHandler {
                         resetStr = ""
                     }
                     segments.append("\(alias): \(col("\(Int(round(pct)))%"))\(resetStr)")
-                } else if snap.error != nil {
-                    segments.append("\(alias): \(dim("!"))")
                 }
             }
         }
 
-        // Antigravity (Gemini primary)
-        let agyID = SettingsStore.antigravityProfileID
-        if let agySnap = store.snapshots[agyID] {
-            let windows = agySnap.windows
-            let gemini5h = windows.first(where: { ($0.scope ?? "").contains("Gemini") && $0.label == "5h" }) ?? windows.first
-            if let g = gemini5h, let pct = g.remainingPercent {
+        // Antigravity (Gemini priority)
+        if let agy = store.snapshots[SettingsStore.antigravityProfileID] {
+            let geminiWindows = agy.windows.filter { $0.scope?.contains("Gemini") ?? false }
+            let w5 = geminiWindows.first(where: { $0.label.contains("5") }) ?? geminiWindows.first ?? agy.windows.first
+            if let w = w5, let pct = w.remainingPercent {
                 let col = quotaColor(for: pct)
                 segments.append("agy: \(col("\(Int(round(pct)))%"))")
             }
         }
 
         if segments.isEmpty {
-            print(dim("seeusage: no data"))
+            print("seeusage: --")
         } else {
-            print(segments.joined(separator: dim(" | ")))
+            print(segments.joined(separator: " \(dim("|")) "))
         }
     }
 
-    // MARK: - Table Output
+    // MARK: - Full Table Dashboard Output
     private static func printTable(store: UsageStore, settings: SettingsStore) {
-        print("")
-        print(bold("\(green("$")) seeusage --status"))
-        print(dim("------------------------------------------------------------"))
+        let updatedTime: String
+        if let d = store.lastUpdated {
+            let df = DateFormatter()
+            df.dateFormat = "HH:mm:ss"
+            updatedTime = df.string(from: d)
+        } else {
+            updatedTime = "--:--:--"
+        }
 
-        // Codex Section
-        print(bold(cyan("CODEX PROFILES [CLI]")))
+        print("\n" + bold("// SEEUSAGE") + " \(dim("--live")) " + dim("[updated \(updatedTime)]") + "\n")
+
+        // 1. CODEX PROFILES
+        print(bold(cyan("// CODEX PROFILES")))
         if settings.codexProfiles.isEmpty {
-            print(dim("  No Codex profiles configured."))
+            print("  " + dim("Nenhum perfil configurado."))
         } else {
             for profile in settings.codexProfiles {
                 let alias = profileAlias(name: profile.name)
                 let snap = store.snapshots[profile.id]
-                let planTag = snap?.plan.map { "[\($0.lowercased())]" } ?? ""
+                let planTag = snap?.plan.map { dim("[\($0.lowercased())]") } ?? ""
 
-                print("  \(cyan("$")) \(bold(alias)) \(dim("(\(profile.name))")) \(cyan(planTag))")
+                print("  " + cyan("$ ") + bold(alias) + dim(" (\(profile.name))") + " \(planTag)")
 
                 if let err = snap?.error, snap?.windows.isEmpty ?? true {
-                    print("    \(amber("Error:")) \(err)")
+                    print("    " + amber("⚠ \(err)"))
                 } else if let windows = snap?.windows, !windows.isEmpty {
                     for w in windows {
-                        printQuotaBar(label: w.label, pct: w.remainingPercent, reset: w.resetsAt)
+                        printWindowRow(label: w.label, percent: w.remainingPercent, reset: w.resetsAt)
                     }
                 } else {
-                    print(dim("    Connecting to codex app-server..."))
+                    print("    " + dim("connecting..."))
                 }
                 print("")
             }
         }
 
-        // Antigravity Section
-        print(bold(purple("ANTIGRAVITY [AGY]")))
-        let agyID = SettingsStore.antigravityProfileID
-        if let agySnap = store.snapshots[agyID] {
-            let grouped = Dictionary(grouping: agySnap.windows) { $0.scope ?? "Antigravity" }
+        // 2. ANTIGRAVITY (AGY)
+        print(bold(purple("// ANTIGRAVITY (AGY)")))
+        let agySnap = store.snapshots[SettingsStore.antigravityProfileID]
+        if let err = agySnap?.error, agySnap?.windows.isEmpty ?? true {
+            print("  " + amber("⚠ \(err)"))
+        } else if let snapshot = agySnap, !snapshot.windows.isEmpty {
+            let grouped = Dictionary(grouping: snapshot.windows) { $0.scope ?? "Antigravity" }
             let keys = grouped.keys.sorted { lhs, rhs in
                 if lhs.contains("Gemini") { return true }
                 if rhs.contains("Gemini") { return false }
@@ -186,46 +256,45 @@ public enum CLIHandler {
 
             for scope in keys {
                 let badge = scopeBadge(scope: scope)
-                print("  \(purple("$")) \(bold("agy")) \(badge)")
-                for w in grouped[scope] ?? [] {
-                    printQuotaBar(label: w.label, pct: w.remainingPercent, reset: w.resetsAt)
+                print("  " + purple("$ ") + bold("agy") + " \(badge)")
+                if let windows = grouped[scope] {
+                    for w in windows {
+                        printWindowRow(label: w.label, percent: w.remainingPercent, reset: w.resetsAt)
+                    }
                 }
                 print("")
             }
-
-            if let err = agySnap.error {
-                print("  \(amber("Warning:")) \(err)")
-                print("")
-            }
         } else {
-            print(dim("  Polling antigravity usage..."))
+            print("  " + dim("fetching metrics..."))
             print("")
         }
 
-        print(dim("------------------------------------------------------------"))
-        if let minQuota = store.minRemainingPercent {
-            let col = quotaColor(for: Double(minQuota))
-            print("Status: \(green("connected")) | Min quota: \(col("\(minQuota)%")) | Last updated: \(dim(Formatters.relativeUpdated(for: store.lastUpdated)))")
+        // Footer Summary
+        if let minPct = store.minRemainingPercent {
+            let col = quotaColor(for: Double(minPct))
+            print(dim("--------------------------------------------------"))
+            print(dim("Lowest Quota: ") + col("\(minPct)%"))
         }
         print("")
     }
 
-    private static func printQuotaBar(label: String, pct: Double?, reset: Date?) {
-        let tag = label.lowercased().padding(toLength: 4, withPad: " ", startingAt: 0)
-        let percentVal = pct.map { Int(round($0)) }
-        let pctStr = percentVal.map { String(format: "%3d%%", $0) } ?? " --%"
-        let col = quotaColor(for: pct)
+    private static func printWindowRow(label: String, percent: Double?, reset: Date?) {
+        let tag = label.lowercased().padding(toLength: 10, withPad: " ", startingAt: 0)
+        let pctStr: String
+        let col = quotaColor(for: percent)
 
-        // Progress bar (20 blocks)
-        let width = 20
-        let filledCount: Int
-        if let p = pct {
-            filledCount = max(0, min(width, Int(round(Double(width) * (p / 100.0)))))
+        if let p = percent {
+            pctStr = String(format: "%3d%%", Int(round(p)))
         } else {
-            filledCount = 0
+            pctStr = " --%"
         }
-        let emptyCount = width - filledCount
-        let bar = col(String(repeating: "━", count: filledCount)) + dim(String(repeating: "━", count: emptyCount))
+
+        let clamped = max(0.0, min(100.0, percent ?? 0.0))
+        let totalBlocks = 16
+        let filledBlocks = Int(round((clamped / 100.0) * Double(totalBlocks)))
+        let emptyBlocks = totalBlocks - filledBlocks
+
+        let bar = col(String(repeating: "■", count: filledBlocks)) + dim(String(repeating: "□", count: emptyBlocks))
 
         let resetStr: String
         if let r = reset {
@@ -379,6 +448,9 @@ public enum CLIHandler {
 
         \(bold("USAGE:"))
           seeusage [options]
+          seeusage settings
+          seeusage themes
+          seeusage theme <id>
           seeusage --mini
           seeusage --export <profile>
           seeusage --json
@@ -388,6 +460,9 @@ public enum CLIHandler {
           -c, --cached        Read instantaneous cached quota from ~/.config/seeusage/cache.json
           -r, --refresh       Force a live refresh against codex app-server and agy CLI
           -j, --json          Output full status and window rate limits as JSON
+          settings, config    Open SeeUsage settings window directly
+          themes, --themes    List all available terminal and developer themes
+          theme <id>          Set active theme by ID (e.g. `seeusage theme ocean`)
           --export <alias>    Output 'export CODEX_HOME=...' command (e.g. `seeusage --export cxp`)
           --shell-init [zsh]  Print shell functions and aliases to add to ~/.zshrc
           --no-color          Disable ANSI color codes
@@ -395,6 +470,9 @@ public enum CLIHandler {
 
         \(bold("EXAMPLES:"))
           $ seeusage                     # Full interactive dashboard table
+          $ seeusage settings            # Open settings window with theme picker
+          $ seeusage themes              # Show all themes (Emerald, Ocean, Grove, etc.)
+          $ seeusage theme grove         # Activate Grove theme
           $ seeusage -m -c               # Instant prompt status: cxp: 2% (3h35m) | cxt: 92% | agy: 24%
           $ eval $(seeusage --export cxp)# Switch active shell to Codex Pessoal
           $ seeusage --json | jq .       # Inspect programmatic JSON metrics

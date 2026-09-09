@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupPopover()
         observeStore()
+        observeOpenSettings()
 
         Task { @MainActor in
             await UsageStore.shared.refresh()
@@ -48,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
+        SettingsWindowManager.shared.show()
         return true
     }
 
@@ -104,6 +106,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+
+    private func observeOpenSettings() {
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleOpenSettingsNotification),
+            name: NSNotification.Name("app.seeusage.openSettings"),
+            object: nil
+        )
+    }
+
+    @objc private func handleOpenSettingsNotification() {
+        SettingsWindowManager.shared.show()
+    }
 }
 
 @main
@@ -134,6 +149,12 @@ struct SeeUsageApp: App {
             } else {
                 others.first?.activate(options: .activateIgnoringOtherApps)
             }
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.openSettings"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
             exit(0)
         }
     }

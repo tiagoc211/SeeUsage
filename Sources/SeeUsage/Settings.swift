@@ -7,20 +7,45 @@ public final class SettingsStore {
 
     public static let antigravityProfileID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
+    public static let suiteName = "app.seeusage.SeeUsage"
+    public static var defaults: UserDefaults {
+        UserDefaults(suiteName: suiteName) ?? .standard
+    }
+
+    public var selectedThemeID: String {
+        didSet {
+            Self.defaults.set(selectedThemeID, forKey: "selectedThemeID")
+            UserDefaults.standard.set(selectedThemeID, forKey: "selectedThemeID")
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.themeChanged"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
+    }
+
+    public var currentTheme: AppTheme {
+        ThemeRegistry.theme(for: selectedThemeID)
+    }
+
     public var refreshIntervalMinutes: Int {
         didSet {
+            Self.defaults.set(refreshIntervalMinutes, forKey: "refreshIntervalMinutes")
             UserDefaults.standard.set(refreshIntervalMinutes, forKey: "refreshIntervalMinutes")
         }
     }
 
     public var codexExecutableOverride: String {
         didSet {
+            Self.defaults.set(codexExecutableOverride, forKey: "codexExecutableOverride")
             UserDefaults.standard.set(codexExecutableOverride, forKey: "codexExecutableOverride")
         }
     }
 
     public var antigravityExecutableOverride: String {
         didSet {
+            Self.defaults.set(antigravityExecutableOverride, forKey: "antigravityExecutableOverride")
             UserDefaults.standard.set(antigravityExecutableOverride, forKey: "antigravityExecutableOverride")
         }
     }
@@ -32,28 +57,58 @@ public final class SettingsStore {
     }
 
     public init() {
-        let defaults = UserDefaults.standard
+        let prefs = Self.defaults
+        let fallback = UserDefaults.standard
 
-        let interval = defaults.integer(forKey: "refreshIntervalMinutes")
+        self.selectedThemeID = prefs.string(forKey: "selectedThemeID")
+            ?? fallback.string(forKey: "selectedThemeID")
+            ?? "t3-default"
+
+        let interval = prefs.integer(forKey: "refreshIntervalMinutes") != 0
+            ? prefs.integer(forKey: "refreshIntervalMinutes")
+            : fallback.integer(forKey: "refreshIntervalMinutes")
         self.refreshIntervalMinutes = interval > 0 ? interval : 5
 
-        self.codexExecutableOverride = defaults.string(forKey: "codexExecutableOverride") ?? ""
-        self.antigravityExecutableOverride = defaults.string(forKey: "antigravityExecutableOverride") ?? ""
+        self.codexExecutableOverride = prefs.string(forKey: "codexExecutableOverride")
+            ?? fallback.string(forKey: "codexExecutableOverride")
+            ?? ""
+        self.antigravityExecutableOverride = prefs.string(forKey: "antigravityExecutableOverride")
+            ?? fallback.string(forKey: "antigravityExecutableOverride")
+            ?? ""
 
-        if let data = defaults.data(forKey: "codexProfiles"),
+        let profileData = prefs.data(forKey: "codexProfiles") ?? fallback.data(forKey: "codexProfiles")
+        if let data = profileData,
            let profiles = try? JSONDecoder().decode([UsageProfile].self, from: data),
            !profiles.isEmpty {
             self.codexProfiles = profiles
         } else {
             self.codexProfiles = Self.discoverCodexProfiles()
             if let data = try? JSONEncoder().encode(self.codexProfiles) {
-                defaults.set(data, forKey: "codexProfiles")
+                prefs.set(data, forKey: "codexProfiles")
+                fallback.set(data, forKey: "codexProfiles")
+            }
+        }
+
+        // Listen for live theme updates across processes
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("app.seeusage.themeChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            if let newTheme = Self.defaults.string(forKey: "selectedThemeID"),
+               newTheme != self?.selectedThemeID {
+                self?.selectedThemeID = newTheme
             }
         }
     }
 
+    public func selectTheme(_ id: String) {
+        self.selectedThemeID = id
+    }
+
     private func saveProfiles() {
         if let data = try? JSONEncoder().encode(codexProfiles) {
+            Self.defaults.set(data, forKey: "codexProfiles")
             UserDefaults.standard.set(data, forKey: "codexProfiles")
         }
     }

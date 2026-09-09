@@ -9,6 +9,18 @@ final class TestSuiteRunner {
         print("\nTest Suite 'All tests' started at \(Date())")
         print("Test Suite 'SeeUsageTests.xctest' started at \(Date())")
 
+        runSync("ThemeTests.testThemesRegistration") {
+            ThemeTests().testThemesRegistration()
+        }
+        runSync("ThemeTests.testThemeLookupAndFallback") {
+            ThemeTests().testThemeLookupAndFallback()
+        }
+        runAsync("ThemeTests.testSettingsStoreThemeSelection") {
+            await MainActor.run {
+                ThemeTests().testSettingsStoreThemeSelection()
+            }
+        }
+
         runSync("CodexParsingTests.testCodexRateLimitsWithTwoWindows") {
             CodexParsingTests().testCodexRateLimitsWithTwoWindows()
         }
