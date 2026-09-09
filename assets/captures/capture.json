@@ -1,0 +1,15 @@
+{
+  "capturedAt": "2026-09-09T23:38:41.043Z",
+  "bounds": [
+    1173,
+    41,
+    370,
+    460
+  ],
+  "source": "SeeUsage native macOS popover, screencapture",
+  "actions": [
+    "Open quota panel",
+    "Refresh quotas at approximately 3s",
+    "Scroll to Antigravity at approximately 6s"
+  ]
+}

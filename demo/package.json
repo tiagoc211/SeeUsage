@@ -1,0 +1,18 @@
+{
+  "name": "seeusage-demo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Isolated Remotion tooling for the SeeUsage README demo",
+  "type": "module",
+  "scripts": {
+    "capture": "node capture.mjs",
+    "studio": "remotion studio src/index.jsx --public-dir=../assets",
+    "render": "node render.mjs"
+  },
+  "devDependencies": {
+    "@remotion/cli": "4.0.523",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.523"
+  }
+}

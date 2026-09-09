@@ -2,6 +2,17 @@
 
 A native macOS menu bar app and CLI that monitors and displays, in a single place, the quotas and rate limits across multiple **Codex** profiles (`CODEX_HOME`) and **Antigravity** (`agy`).
 
+<h2 align="center">Demo</h2>
+
+<p align="center">
+  <a href="assets/seeusage-demo.mp4">
+    <img src="assets/seeusage-demo.gif" alt="SeeUsage showing Codex profile quotas, refreshing usage, and scrolling to Gemini and Claude quotas in its native macOS panel." width="900" />
+  </a>
+</p>
+<p align="center">
+  Real SeeUsage interface · 13 seconds · <a href="assets/seeusage-demo.mp4">Watch the MP4</a>
+</p>
+
 ```text
 SeeUsage                     ↻  ⚙
 Updated just now
