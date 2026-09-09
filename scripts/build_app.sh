@@ -48,6 +48,10 @@ cat << 'EOF' > "${CONTENTS_DIR}/Info.plist"
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
+    <key>NSSupportsSuddenTermination</key>
+    <false/>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

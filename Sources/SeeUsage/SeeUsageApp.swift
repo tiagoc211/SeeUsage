@@ -1,7 +1,15 @@
 import SwiftUI
+import AppKit
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        ProcessInfo.processInfo.disableAutomaticTermination("SeeUsage Menu Bar Active")
+    }
+}
 
 @main
 struct SeeUsageApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var store = UsageStore.shared
 
     init() {
