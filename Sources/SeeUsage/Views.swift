@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Settings Window Manager
 @MainActor
 public final class SettingsWindowManager {
     public static let shared = SettingsWindowManager()
@@ -15,7 +16,7 @@ public final class SettingsWindowManager {
 
         let hosting = NSHostingController(rootView: SettingsView())
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 490),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 500),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -30,6 +31,42 @@ public final class SettingsWindowManager {
     }
 }
 
+// MARK: - Mac Native Icon Button
+struct MacIconButton: View {
+    let icon: String
+    let helpText: String
+    var isSpinning: Bool = false
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(isHovered ? Color.primary.opacity(0.08) : Color.clear)
+                    .frame(width: 26, height: 26)
+
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isHovered ? Color.primary : Color.secondary)
+                    .rotationEffect(.degrees(isSpinning ? 360 : 0))
+                    .animation(
+                        isSpinning
+                            ? .linear(duration: 0.9).repeatForever(autoreverses: false)
+                            : .default,
+                        value: isSpinning
+                    )
+            }
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(helpText)
+    }
+}
+
+// MARK: - Usage Popover View (Apple macOS Design)
 public struct UsagePopoverView: View {
     private var store = UsageStore.shared
     private var settings = SettingsStore.shared
@@ -42,8 +79,9 @@ public struct UsagePopoverView: View {
             headerView
 
             Divider()
+                .opacity(0.4)
 
-            // Main Content
+            // Content
             if store.snapshots.isEmpty && store.isRefreshing {
                 loadingView
             } else {
@@ -51,12 +89,13 @@ public struct UsagePopoverView: View {
             }
 
             Divider()
+                .opacity(0.4)
 
             // Footer
             footerView
         }
-        .frame(width: 380)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: 360)
+        .background(.ultraThinMaterial)
         .onAppear {
             Task {
                 await store.refresh()
@@ -67,57 +106,59 @@ public struct UsagePopoverView: View {
     // MARK: - Header
     private var headerView: some View {
         HStack(alignment: .center, spacing: 10) {
-            Image(systemName: "gauge.with.needle.fill")
-                .font(.system(size: 16))
-                .foregroundStyle(Color.accentColor)
+            // Apple-style App Icon Badge
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.blue, Color.indigo],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 26, height: 26)
+                    .shadow(color: Color.blue.opacity(0.25), radius: 3, y: 1)
+
+                Image(systemName: "gauge.with.needle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("SeeUsage")
-                    .font(.system(size: 14, weight: .bold))
+                Text("Quotas de IA")
+                    .font(.system(size: 13, weight: .bold, design: .default))
+                    .foregroundStyle(.primary)
+
                 Text(Formatters.relativeUpdated(for: store.lastUpdated))
-                    .font(.system(size: 10))
+                    .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            // Refresh Button
-            Button {
-                Task { await store.refresh() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 12, weight: .semibold))
-                    .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
-                    .animation(
-                        store.isRefreshing
-                            ? .linear(duration: 0.9).repeatForever(autoreverses: false)
-                            : .default,
-                        value: store.isRefreshing
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("Atualizar quotas agora")
+            HStack(spacing: 2) {
+                MacIconButton(
+                    icon: "arrow.clockwise",
+                    helpText: "Atualizar quotas agora",
+                    isSpinning: store.isRefreshing
+                ) {
+                    Task { await store.refresh() }
+                }
 
-            // Settings Button
-            Button {
-                SettingsWindowManager.shared.show()
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .buttonStyle(.plain)
-            .help("Definições")
+                MacIconButton(
+                    icon: "gearshape",
+                    helpText: "Definições"
+                ) {
+                    SettingsWindowManager.shared.show()
+                }
 
-            // Quit Button
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Image(systemName: "power")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                MacIconButton(
+                    icon: "power",
+                    helpText: "Sair do SeeUsage"
+                ) {
+                    NSApplication.shared.terminate(nil)
+                }
             }
-            .buttonStyle(.plain)
-            .help("Fechar SeeUsage")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -128,12 +169,12 @@ public struct UsagePopoverView: View {
         VStack(spacing: 12) {
             ProgressView()
                 .controlSize(.regular)
-            Text("A obter quotas dos perfis...")
-                .font(.system(size: 12))
+            Text("A consultar contas...")
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .frame(minHeight: 280)
+        .frame(minHeight: 260)
         .padding(.vertical, 40)
     }
 
@@ -143,54 +184,27 @@ public struct UsagePopoverView: View {
             VStack(alignment: .leading, spacing: 14) {
                 // CODEX SECTION
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "terminal.fill")
-                            .font(.system(size: 10))
-                        Text("CODEX")
-                            .font(.system(size: 11, weight: .bold))
-                    }
-                    .foregroundStyle(.secondary)
+                    sectionHeader(title: "CODEX", icon: "terminal.fill", color: .blue)
 
                     if settings.codexProfiles.isEmpty {
-                        Text("Nenhum perfil configurado.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 4)
+                        emptyProfileCard
                     } else {
                         ForEach(settings.codexProfiles) { profile in
-                            ProfileCardView(
-                                title: profile.name,
-                                iconName: "person.crop.circle",
+                            CodexProfileCardView(
+                                profile: profile,
                                 snapshot: store.snapshots[profile.id]
                             )
                         }
                     }
                 }
 
-                Divider()
-
                 // ANTIGRAVITY SECTION
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 10))
-                        Text("ANTIGRAVITY")
-                            .font(.system(size: 11, weight: .bold))
-                    }
-                    .foregroundStyle(.secondary)
+                    sectionHeader(title: "ANTIGRAVITY", icon: "sparkles", color: .purple)
 
                     let agySnapshot = store.snapshots[SettingsStore.antigravityProfileID]
                     if let err = agySnapshot?.error, agySnapshot?.windows.isEmpty ?? true {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                            Text(err)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(cardBackground)
+                        errorCard(message: err)
                     } else if let snapshot = agySnapshot {
                         let grouped = Dictionary(grouping: snapshot.windows) { $0.scope ?? "Antigravity" }
                         let keys = grouped.keys.sorted { lhs, rhs in
@@ -207,105 +221,159 @@ public struct UsagePopoverView: View {
                         }
 
                         if let err = agySnapshot?.error {
-                            HStack(spacing: 4) {
-                                Image(systemName: "info.circle")
+                            HStack(spacing: 5) {
+                                Image(systemName: "info.circle.fill")
+                                    .font(.system(size: 10))
                                 Text(err)
+                                    .font(.system(size: 10))
                             }
-                            .font(.system(size: 10))
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 4)
                         }
                     } else {
-                        HStack(spacing: 8) {
-                            ProgressView().scaleEffect(0.6)
-                            Text("A consultar...")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(cardBackground)
+                        loadingCard
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 380)
-        .frame(minHeight: 280, maxHeight: 480)
+        .frame(width: 360)
+        .frame(minHeight: 260, maxHeight: 500)
+    }
+
+    // MARK: - Section Header
+    private func sectionHeader(title: String, icon: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 9.5, weight: .bold))
+                .foregroundStyle(color)
+
+            Text(title)
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundStyle(.secondary)
+                .tracking(0.6)
+        }
+        .padding(.leading, 4)
+    }
+
+    // MARK: - Empty / Loading Cards
+    private var emptyProfileCard: some View {
+        Text("Nenhum perfil configurado.")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(appleCardBackground)
+    }
+
+    private func errorCard(message: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(appleCardBackground)
+    }
+
+    private var loadingCard: some View {
+        HStack(spacing: 8) {
+            ProgressView().scaleEffect(0.6)
+            Text("A consultar...")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(appleCardBackground)
     }
 
     // MARK: - Footer
     private var footerView: some View {
         HStack {
-            HStack(spacing: 6) {
+            // Live Status Indicator
+            HStack(spacing: 5) {
                 Circle()
                     .fill(store.isRefreshing ? Color.orange : Color.green)
                     .frame(width: 6, height: 6)
-                Text(store.isRefreshing ? "A sincronizar..." : "Pronto")
-                    .font(.system(size: 10))
+                    .shadow(color: (store.isRefreshing ? Color.orange : Color.green).opacity(0.4), radius: 2)
+
+                Text(store.isRefreshing ? "A sincronizar..." : "Sincronizado")
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
+            // Lowest Quota Chip
             if let minPct = store.minRemainingPercent {
                 HStack(spacing: 4) {
-                    Text("Menor quota:")
+                    Text("Menor:")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
+
                     Text("\(minPct)%")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(quotaColor(for: Double(minPct)))
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(appleQuotaColor(for: Double(minPct)))
                 }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule()
+                        .fill(appleQuotaColor(for: Double(minPct)).opacity(0.12))
+                )
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(Color(nsColor: .controlBackgroundColor))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-            )
+        .padding(.vertical, 9)
     }
 }
 
-// MARK: - Profile Card View (Codex)
-struct ProfileCardView: View {
-    let title: String
-    let iconName: String
+// MARK: - Codex Profile Card (Apple Native Grouped Style)
+struct CodexProfileCardView: View {
+    let profile: UsageProfile
     let snapshot: UsageSnapshot?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Title & Plan Header
-            HStack(alignment: .center) {
-                HStack(spacing: 6) {
-                    Image(systemName: iconName)
+        VStack(alignment: .leading, spacing: 10) {
+            // Card Header
+            HStack(alignment: .center, spacing: 8) {
+                // Mini profile avatar
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.12))
+                        .frame(width: 22, height: 22)
+
+                    Image(systemName: "person.crop.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                    Text(title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.blue)
                 }
+
+                Text(profile.name)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(.primary)
 
                 Spacer()
 
                 if let plan = snapshot?.plan {
-                    Text(plan)
-                        .font(.system(size: 9.5, weight: .bold))
+                    Text(plan.uppercased())
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.12)))
-                        .foregroundStyle(Color.accentColor)
+                        .padding(.vertical, 2.5)
+                        .background(
+                            Capsule()
+                                .fill(Color.blue.opacity(0.12))
+                        )
+                        .foregroundStyle(Color.blue)
                 }
             }
 
-            // Body
+            // Quota Rows
             if let err = snapshot?.error, snapshot?.windows.isEmpty ?? true {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.triangle")
@@ -316,9 +384,9 @@ struct ProfileCardView: View {
                 .foregroundStyle(.orange)
                 .padding(.vertical, 2)
             } else if let windows = snapshot?.windows, !windows.isEmpty {
-                VStack(spacing: 6) {
+                VStack(spacing: 7) {
                     ForEach(windows) { window in
-                        QuotaRowView(window: window)
+                        AppleQuotaRowView(window: window)
                     }
                 }
 
@@ -337,100 +405,108 @@ struct ProfileCardView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                )
-        )
+        .padding(11)
+        .background(appleCardBackground)
     }
 }
 
-// MARK: - Antigravity Scope Card
+// MARK: - Antigravity Scope Card (Apple Native Grouped Style)
 struct AntigravityScopeCardView: View {
     let scope: String
     let windows: [UsageWindow]
 
-    private var scopeIcon: String {
-        if scope.contains("Gemini") { return "sparkles" }
-        return "cpu"
+    private var scopeInfo: (icon: String, color: Color) {
+        if scope.contains("Gemini") {
+            return ("sparkles", Color.purple)
+        } else if scope.contains("Claude") {
+            return ("brain", Color.orange)
+        } else {
+            return ("cpu", Color.indigo)
+        }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: scopeIcon)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            // Scope Header
+            HStack(spacing: 7) {
+                ZStack {
+                    Circle()
+                        .fill(scopeInfo.color.opacity(0.12))
+                        .frame(width: 22, height: 22)
+
+                    Image(systemName: scopeInfo.icon)
+                        .font(.system(size: 11))
+                        .foregroundStyle(scopeInfo.color)
+                }
+
                 Text(scope)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(.primary)
+
                 Spacer()
             }
 
-            VStack(spacing: 6) {
+            // Quotas
+            VStack(spacing: 7) {
                 ForEach(windows) { window in
-                    QuotaRowView(window: window)
+                    AppleQuotaRowView(window: window)
                 }
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                )
-        )
+        .padding(11)
+        .background(appleCardBackground)
     }
 }
 
-// MARK: - Quota Row View (Pixel-Perfect Column Alignment)
-struct QuotaRowView: View {
+// MARK: - Apple Quota Row View
+struct AppleQuotaRowView: View {
     let window: UsageWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .center, spacing: 8) {
-                // Column 1: Window Label (Fixed 48pt)
+                // Window Tag / Pill (e.g. "5h", "7d")
                 Text(window.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .leading)
+                    .frame(width: 32, alignment: .center)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(Color.primary.opacity(0.06))
+                    )
 
-                // Column 2: Progress Bar (Expands evenly)
-                ModernProgressBar(percent: window.remainingPercent ?? 0)
-                    .frame(height: 7)
+                // Native Apple Progress Bar Track
+                AppleProgressBar(percent: window.remainingPercent ?? 0)
 
-                // Column 3: Percentage (Fixed 42pt)
+                // Percentage Value
                 Text(window.remainingPercent.map { "\(Int(round($0)))%" } ?? "--")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(quotaColor(for: window.remainingPercent))
-                    .frame(width: 42, alignment: .trailing)
+                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(appleQuotaColor(for: window.remainingPercent))
+                    .frame(width: 40, alignment: .trailing)
             }
 
-            // Reset Subtitle (Indented by label width + spacing = 56pt)
+            // Reset Subtitle (Indented nicely past the label tag)
             if let reset = window.resetsAt {
-                HStack(spacing: 3) {
+                HStack(spacing: 4) {
                     Color.clear
-                        .frame(width: 48 + 8, height: 1)
+                        .frame(width: 32 + 8, height: 1)
 
-                    Image(systemName: "clock")
+                    Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 8.5))
+                        .foregroundStyle(.secondary.opacity(0.7))
+
                     Text(Formatters.resetDescription(for: reset))
-                        .font(.system(size: 9.5))
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundStyle(.secondary.opacity(0.85))
                 }
-                .foregroundStyle(.tertiary)
             }
         }
     }
 }
 
-// MARK: - Modern Progress Bar
-struct ModernProgressBar: View {
+// MARK: - Apple Native Progress Bar (Sleek Gradient Pill)
+struct AppleProgressBar: View {
     let percent: Double
 
     var body: some View {
@@ -439,28 +515,64 @@ struct ModernProgressBar: View {
             let fillWidth = geo.size.width * CGFloat(clamped / 100.0)
 
             ZStack(alignment: .leading) {
+                // Background Track
                 Capsule()
-                    .fill(Color.primary.opacity(0.12))
-                    .frame(height: 7)
+                    .fill(Color.primary.opacity(0.07))
+                    .frame(height: 6.5)
 
+                // Gradient Active Fill
                 Capsule()
-                    .fill(quotaColor(for: clamped))
-                    .frame(width: max(fillWidth, clamped > 0 ? 4 : 0), height: 7)
+                    .fill(appleGradient(for: clamped))
+                    .frame(width: max(fillWidth, clamped > 0 ? 5 : 0), height: 6.5)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: clamped)
             }
         }
-        .frame(minWidth: 80)
-        .frame(height: 7)
+        .frame(minWidth: 90)
+        .frame(height: 6.5)
+    }
+
+    private func appleGradient(for pct: Double) -> LinearGradient {
+        if pct <= 15 {
+            return LinearGradient(
+                colors: [Color.red, Color(red: 1.0, green: 0.35, blue: 0.4)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        } else if pct <= 35 {
+            return LinearGradient(
+                colors: [Color.orange, Color(red: 1.0, green: 0.7, blue: 0.2)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        } else {
+            return LinearGradient(
+                colors: [Color(red: 0.18, green: 0.8, blue: 0.44), Color(red: 0.2, green: 0.88, blue: 0.6)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        }
     }
 }
 
-func quotaColor(for percent: Double?) -> Color {
+// MARK: - Semantic Apple Quota Color
+func appleQuotaColor(for percent: Double?) -> Color {
     guard let pct = percent else { return .secondary }
-    if pct <= 15 { return .red }
-    if pct <= 35 { return .orange }
-    return Color.accentColor
+    if pct <= 15 { return Color(nsColor: .systemRed) }
+    if pct <= 35 { return Color(nsColor: .systemOrange) }
+    return Color(nsColor: .systemGreen)
 }
 
-// MARK: - Settings View (Modern macOS Settings UI)
+// MARK: - Apple Card Background
+private var appleCardBackground: some View {
+    RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+        )
+}
+
+// MARK: - Settings View (macOS System Settings Style)
 public struct SettingsView: View {
     @Bindable var settings = SettingsStore.shared
     @State private var editingID: UUID?
@@ -470,13 +582,27 @@ public struct SettingsView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 22) {
                 // Section 1: Perfis Codex
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Label("Perfis Codex", systemImage: "person.2.fill")
-                            .font(.system(size: 13, weight: .bold))
+                        HStack(spacing: 7) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(Color.blue)
+                                    .frame(width: 20, height: 20)
+
+                                Image(systemName: "person.2.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+
+                            Text("Perfis Codex")
+                                .font(.system(size: 13, weight: .bold))
+                        }
+
                         Spacer()
+
                         Button {
                             chooseCodexHome()
                         } label: {
@@ -499,8 +625,8 @@ public struct SettingsView: View {
                                 VStack(spacing: 0) {
                                     HStack(alignment: .center, spacing: 12) {
                                         Image(systemName: "folder.fill")
-                                            .font(.system(size: 16))
-                                            .foregroundStyle(Color.accentColor)
+                                            .font(.system(size: 15))
+                                            .foregroundStyle(Color.blue)
 
                                         if editingID == profile.id {
                                             HStack(spacing: 8) {
@@ -524,7 +650,7 @@ public struct SettingsView: View {
                                                 Text(profile.name)
                                                     .font(.system(size: 13, weight: .semibold))
                                                 Text(profile.homePath ?? "Padrão (~/.codex)")
-                                                    .font(.system(size: 11, design: .monospaced))
+                                                    .font(.system(size: 10.5, design: .monospaced))
                                                     .foregroundStyle(.secondary)
                                                     .lineLimit(1)
                                                     .truncationMode(.middle)
@@ -532,13 +658,13 @@ public struct SettingsView: View {
 
                                             Spacer()
 
-                                            HStack(spacing: 8) {
+                                            HStack(spacing: 6) {
                                                 Button {
                                                     editingID = profile.id
                                                     editName = profile.name
                                                 } label: {
                                                     Image(systemName: "pencil")
-                                                        .font(.system(size: 12))
+                                                        .font(.system(size: 11.5))
                                                 }
                                                 .buttonStyle(.borderless)
                                                 .help("Renomear")
@@ -547,7 +673,7 @@ public struct SettingsView: View {
                                                     settings.removeProfile(id: profile.id)
                                                 } label: {
                                                     Image(systemName: "trash")
-                                                        .font(.system(size: 12))
+                                                        .font(.system(size: 11.5))
                                                         .foregroundStyle(.red)
                                                 }
                                                 .buttonStyle(.borderless)
@@ -560,28 +686,31 @@ public struct SettingsView: View {
 
                                     if index < settings.codexProfiles.count - 1 {
                                         Divider()
-                                            .padding(.leading, 42)
+                                            .padding(.leading, 40)
                                     }
                                 }
                             }
                         }
                     }
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                            )
-                    )
+                    .background(appleCardBackground)
                 }
-
-                Divider()
 
                 // Section 2: Executáveis
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("Caminhos dos Executáveis", systemImage: "terminal")
-                        .font(.system(size: 13, weight: .bold))
+                    HStack(spacing: 7) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Color.gray)
+                                .frame(width: 20, height: 20)
+
+                            Image(systemName: "terminal.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+
+                        Text("Caminhos dos Executáveis")
+                            .font(.system(size: 13, weight: .bold))
+                    }
 
                     VStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
@@ -613,22 +742,25 @@ public struct SettingsView: View {
                         }
                     }
                     .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                            )
-                    )
+                    .background(appleCardBackground)
                 }
 
-                Divider()
-
-                // Section 3: Frequência de Atualização
+                // Section 3: Frequência
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("Atualização Automática", systemImage: "clock.arrow.circlepath")
-                        .font(.system(size: 13, weight: .bold))
+                    HStack(spacing: 7) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Color.orange)
+                                .frame(width: 20, height: 20)
+
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+
+                        Text("Atualização Automática")
+                            .font(.system(size: 13, weight: .bold))
+                    }
 
                     HStack {
                         Text("Intervalo de sincronização:")
@@ -644,19 +776,12 @@ public struct SettingsView: View {
                         .frame(width: 170)
                     }
                     .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                            )
-                    )
+                    .background(appleCardBackground)
                 }
             }
             .padding(20)
         }
-        .frame(width: 480, height: 460)
+        .frame(width: 480, height: 490)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
