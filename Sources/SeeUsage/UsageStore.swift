@@ -120,7 +120,24 @@ public final class UsageStore {
                 try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
                 guard let self = self, !Task.isCancelled else { break }
                 let interval = SettingsStore.shared.refreshIntervalMinutes * 60
-                if let last = self.lastUpdated, Date().timeIntervalSince(last) >= Double(interval) {
+                let now = Date()
+                let intervalElapsed = self.lastUpdated.map { now.timeIntervalSince($0) >= Double(interval) } ?? true
+
+                // Check if any window reset time just elapsed
+                var resetTriggered = false
+                if let last = self.lastUpdated {
+                    for snap in self.snapshots.values {
+                        for win in snap.windows {
+                            if let r = win.resetsAt, r <= now, r > last {
+                                resetTriggered = true
+                                break
+                            }
+                        }
+                        if resetTriggered { break }
+                    }
+                }
+
+                if intervalElapsed || resetTriggered {
                     await self.refresh()
                 }
             }
@@ -138,6 +155,7 @@ public final class UsageStore {
 
         let codexProfiles = settings.codexProfiles
         let agyProfileID = SettingsStore.antigravityProfileID
+        let oldSnapshots = self.snapshots
 
         await withTaskGroup(of: (UUID, UsageSnapshot).self) { group in
             // Codex profiles
@@ -167,7 +185,7 @@ public final class UsageStore {
                         plan: old.plan,
                         windows: old.windows,
                         fetchedAt: old.fetchedAt,
-                        error: "\(err) (Desatualizado)"
+                        error: "\(err) (Outdated)"
                     )
                 } else {
                     self.snapshots[id] = snapshot
@@ -177,5 +195,7 @@ public final class UsageStore {
                 NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
             }
         }
+
+        NotificationManager.shared.evaluateSnapshots(oldSnapshots: oldSnapshots, newSnapshots: self.snapshots)
     }
 }

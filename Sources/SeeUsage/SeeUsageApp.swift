@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPopover()
         observeStore()
         observeOpenSettings()
+        NotificationManager.shared.requestAuthorization()
 
         Task { @MainActor in
             await UsageStore.shared.refresh()

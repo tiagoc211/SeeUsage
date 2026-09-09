@@ -68,6 +68,41 @@ public final class SettingsStore {
         }
     }
 
+    public var notificationsEnabled: Bool {
+        didSet {
+            Self.defaults.set(notificationsEnabled, forKey: "notificationsEnabled")
+            UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled")
+        }
+    }
+
+    public var notifyOnCritical: Bool {
+        didSet {
+            Self.defaults.set(notifyOnCritical, forKey: "notifyOnCritical")
+            UserDefaults.standard.set(notifyOnCritical, forKey: "notifyOnCritical")
+        }
+    }
+
+    public var criticalThresholdPercent: Int {
+        didSet {
+            Self.defaults.set(criticalThresholdPercent, forKey: "criticalThresholdPercent")
+            UserDefaults.standard.set(criticalThresholdPercent, forKey: "criticalThresholdPercent")
+        }
+    }
+
+    public var notifyOnReset: Bool {
+        didSet {
+            Self.defaults.set(notifyOnReset, forKey: "notifyOnReset")
+            UserDefaults.standard.set(notifyOnReset, forKey: "notifyOnReset")
+        }
+    }
+
+    public var notificationSoundEnabled: Bool {
+        didSet {
+            Self.defaults.set(notificationSoundEnabled, forKey: "notificationSoundEnabled")
+            UserDefaults.standard.set(notificationSoundEnabled, forKey: "notificationSoundEnabled")
+        }
+    }
+
     public var refreshIntervalMinutes: Int {
         didSet {
             Self.defaults.set(refreshIntervalMinutes, forKey: "refreshIntervalMinutes")
@@ -118,6 +153,27 @@ public final class SettingsStore {
         } else {
             self.launchAtLogin = false
         }
+
+        self.notificationsEnabled = prefs.object(forKey: "notificationsEnabled") as? Bool
+            ?? fallback.object(forKey: "notificationsEnabled") as? Bool
+            ?? true
+
+        self.notifyOnCritical = prefs.object(forKey: "notifyOnCritical") as? Bool
+            ?? fallback.object(forKey: "notifyOnCritical") as? Bool
+            ?? true
+
+        let thresh = prefs.integer(forKey: "criticalThresholdPercent") != 0
+            ? prefs.integer(forKey: "criticalThresholdPercent")
+            : fallback.integer(forKey: "criticalThresholdPercent")
+        self.criticalThresholdPercent = thresh > 0 ? thresh : 15
+
+        self.notifyOnReset = prefs.object(forKey: "notifyOnReset") as? Bool
+            ?? fallback.object(forKey: "notifyOnReset") as? Bool
+            ?? true
+
+        self.notificationSoundEnabled = prefs.object(forKey: "notificationSoundEnabled") as? Bool
+            ?? fallback.object(forKey: "notificationSoundEnabled") as? Bool
+            ?? true
 
         let interval = prefs.integer(forKey: "refreshIntervalMinutes") != 0
             ? prefs.integer(forKey: "refreshIntervalMinutes")

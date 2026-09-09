@@ -634,6 +634,7 @@ private var t3CardBackground: some View {
 enum SettingsTab: String, CaseIterable, Identifiable {
     case menubar = "menubar"
     case appearance = "appearance"
+    case notifications = "notifications"
     case profiles = "profiles"
     case executables = "executables"
     case sync = "sync"
@@ -645,6 +646,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .menubar: return "Menu Bar"
         case .appearance: return "Appearance"
+        case .notifications: return "Notifications"
         case .profiles: return "Codex Profiles"
         case .executables: return "Executables"
         case .sync: return "Sync"
@@ -656,6 +658,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .menubar: return "display & launch"
         case .appearance: return "themes & palette"
+        case .notifications: return "alerts & thresholds"
         case .profiles: return "codex accounts"
         case .executables: return "cli paths"
         case .sync: return "polling frequency"
@@ -667,6 +670,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .menubar: return "menubar.rectangle"
         case .appearance: return "paintbrush.fill"
+        case .notifications: return "bell.badge.fill"
         case .profiles: return "person.crop.circle"
         case .executables: return "slider.horizontal.3"
         case .sync: return "arrow.triangle.2.circlepath"
@@ -869,6 +873,16 @@ public struct SettingsView: View {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(Color.white.opacity(0.04))
                 )
+        case .notifications:
+            Text(settings.notificationsEnabled ? "\(settings.criticalThresholdPercent)%" : "off")
+                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1.5)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(Color.white.opacity(0.04))
+                )
         case .profiles:
             Text("\(settings.codexProfiles.count)")
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
@@ -948,6 +962,20 @@ public struct SettingsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+            case .notifications:
+                Button {
+                    NotificationManager.shared.sendTestNotification()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 9))
+                        Text("test alert")
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                    .foregroundStyle(settings.currentTheme.textSecondary)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             case .sync:
                 Button {
                     Task { await UsageStore.shared.refresh() }
@@ -977,6 +1005,8 @@ public struct SettingsView: View {
             menuBarPane
         case .appearance:
             appearancePane
+        case .notifications:
+            notificationsPane
         case .profiles:
             profilesPane
         case .executables:
@@ -1355,6 +1385,208 @@ public struct SettingsView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(t3CardBackground)
+    }
+
+    // MARK: - Notifications Pane
+    private var notificationsPane: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            // Section Header
+            VStack(alignment: .leading, spacing: 4) {
+                Text("// NATIVE MAC NOTIFICATIONS")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.accent)
+
+                Text("Configure native macOS system alerts for critical quota thresholds and scheduled reset events.")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Master Switch Card
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(settings.notificationsEnabled ? settings.currentTheme.accent.opacity(0.15) : Color.white.opacity(0.04))
+                            .frame(width: 32, height: 32)
+                        Image(systemName: settings.notificationsEnabled ? "bell.badge.fill" : "bell.slash")
+                            .font(.system(size: 14))
+                            .foregroundStyle(settings.notificationsEnabled ? settings.currentTheme.accent : settings.currentTheme.textMuted)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Enable System Notifications")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textPrimary)
+                        Text("Deliver banners and sounds when quotas drop or recover")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: $settings.notificationsEnabled)
+                        .toggleStyle(.switch)
+                        .scaleEffect(0.8)
+                }
+                .padding(14)
+            }
+            .background(t3CardBackground)
+
+            if settings.notificationsEnabled {
+                // Critical Quota Alert Configuration
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(settings.currentTheme.red)
+                        Text("CRITICAL QUOTA ALERTS")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                    }
+
+                    // Toggle for critical alert
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Alert on Low Quota")
+                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textPrimary)
+                            Text("Notify when any model or profile drops to or below the threshold")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textMuted)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $settings.notifyOnCritical)
+                            .toggleStyle(.switch)
+                            .scaleEffect(0.8)
+                    }
+
+                    if settings.notifyOnCritical {
+                        Rectangle()
+                            .fill(settings.currentTheme.border)
+                            .frame(height: 1)
+
+                        // Threshold Selector
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Alert Threshold:")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(settings.currentTheme.textSecondary)
+                                Text("≤ \(settings.criticalThresholdPercent)%")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(settings.currentTheme.red)
+                                Spacer()
+                            }
+
+                            HStack(spacing: 8) {
+                                ForEach([5, 10, 15, 20, 25], id: \.self) { val in
+                                    let isSelected = settings.criticalThresholdPercent == val
+                                    Button {
+                                        withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
+                                            settings.criticalThresholdPercent = val
+                                        }
+                                    } label: {
+                                        Text("\(val)%")
+                                            .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
+                                            .foregroundStyle(isSelected ? Color.white : settings.currentTheme.textSecondary)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 6)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                    .fill(isSelected ? settings.currentTheme.accent : Color.white.opacity(0.04))
+                                            )
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                    .stroke(isSelected ? settings.currentTheme.accent : settings.currentTheme.border, lineWidth: 1)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(14)
+                .background(t3CardBackground)
+
+                // Quota Restored & Sound Configuration
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(settings.currentTheme.green)
+                        Text("RESTORATION & SOUND")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                    }
+
+                    // Reset alert toggle
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Alert on Quota Reset")
+                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textPrimary)
+                            Text("Notify when quota counter resets and usage capacity is restored")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textMuted)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $settings.notifyOnReset)
+                            .toggleStyle(.switch)
+                            .scaleEffect(0.8)
+                    }
+
+                    Rectangle()
+                        .fill(settings.currentTheme.border)
+                        .frame(height: 1)
+
+                    // Sound toggle
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Play System Sound")
+                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textPrimary)
+                            Text("Play the default macOS alert sound with notifications")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textMuted)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $settings.notificationSoundEnabled)
+                            .toggleStyle(.switch)
+                            .scaleEffect(0.8)
+                    }
+                }
+                .padding(14)
+                .background(t3CardBackground)
+
+                // Test Delivery Card
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Test Native Delivery")
+                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textPrimary)
+                        Text("Dispatch a sample alert to verify macOS banner and sound")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                    }
+                    Spacer()
+                    Button {
+                        NotificationManager.shared.sendTestNotification()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 9))
+                            Text("send test")
+                                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+                .padding(14)
+                .background(t3CardBackground)
+            }
+        }
     }
 
     // MARK: - Profiles Pane

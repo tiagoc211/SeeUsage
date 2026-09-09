@@ -78,6 +78,18 @@ public enum CLIHandler {
             }
         }
 
+        // Notification Settings & Testing
+        if let notifIdx = args.firstIndex(of: "notify") ?? args.firstIndex(of: "--notify") {
+            if notifIdx + 1 < args.count {
+                let action = args[notifIdx + 1]
+                handleNotifyCommand(action: action)
+                return true
+            } else {
+                printNotifyStatus()
+                return true
+            }
+        }
+
         // Open Settings Window
         if args.contains("settings") || args.contains("--settings") || args.contains("config") {
             DistributedNotificationCenter.default().postNotificationName(
@@ -499,6 +511,57 @@ public enum CLIHandler {
         """)
     }
 
+    // MARK: - Notification Controls
+    private static func printNotifyStatus() {
+        let s = SettingsStore.shared
+        let enabledStr = s.notificationsEnabled ? green("ENABLED") : dim("DISABLED")
+        let critStr = s.notifyOnCritical ? green("ON") : dim("OFF")
+        let resetStr = s.notifyOnReset ? green("ON") : dim("OFF")
+        let soundStr = s.notificationSoundEnabled ? green("ON") : dim("OFF")
+
+        print("""
+
+\(bold("// SEEUSAGE NOTIFICATION SETTINGS"))
+
+  System Notifications:   \(enabledStr)
+  Critical Quota Alert:   \(critStr) (threshold: \(bold("\(s.criticalThresholdPercent)%")))
+  Quota Restored Alert:   \(resetStr)
+  Alert Sound:            \(soundStr)
+
+  Usage:
+    seeusage notify test          Send an instant test notification
+    seeusage notify on            Enable system notifications
+    seeusage notify off           Disable system notifications
+    seeusage notify <threshold>   Set critical threshold percentage (e.g. `seeusage notify 10`)
+
+""")
+    }
+
+    private static func handleNotifyCommand(action: String) {
+        let s = SettingsStore.shared
+        switch action.lowercased() {
+        case "test":
+            NotificationManager.shared.sendTestNotification()
+            print("\n" + green("✓") + " Test notification dispatched to macOS.\n")
+
+        case "on", "enable", "1":
+            s.notificationsEnabled = true
+            print("\n" + green("✓") + " Native notifications enabled.\n")
+
+        case "off", "disable", "0":
+            s.notificationsEnabled = false
+            print("\n" + green("✓") + " Native notifications disabled.\n")
+
+        default:
+            if let num = Int(action), num >= 1, num <= 90 {
+                s.criticalThresholdPercent = num
+                print("\n" + green("✓") + " Critical quota alert threshold set to \(bold("\(num)%")).\n")
+            } else {
+                print("\n" + red("Error:") + " Unknown notification argument '\(action)'. Use 'test', 'on', 'off', or a percentage number like '10'.\n")
+            }
+        }
+    }
+
     // MARK: - Help Manual
     private static func printHelp() {
         print("""
@@ -511,6 +574,7 @@ public enum CLIHandler {
           seeusage themes
           seeusage theme <id>
           seeusage mode [id]
+          seeusage notify [test|on|off|<threshold>]
           seeusage --mini
           seeusage --export <profile>
           seeusage --json
@@ -525,6 +589,7 @@ public enum CLIHandler {
           themes, --themes    List all available terminal and developer themes
           theme <id>          Set active theme by ID (e.g. `seeusage theme ocean`)
           mode [id]           Set or list menu bar display style (percent, dual, gauge, iconOnly)
+          notify [action]     Manage notification alerts or dispatch test notification
           --export <alias>    Output 'export CODEX_HOME=...' command (e.g. `seeusage --export cxp`)
           --shell-init [zsh]  Print shell functions and aliases to add to ~/.zshrc
           --no-color          Disable ANSI color codes
