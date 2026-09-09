@@ -60,6 +60,18 @@ public enum CLIHandler {
             }
         }
 
+        // Menu Bar Display Mode
+        if let modeIdx = args.firstIndex(of: "mode") ?? args.firstIndex(of: "--mode") {
+            if modeIdx + 1 < args.count {
+                let target = args[modeIdx + 1]
+                setMenuBarMode(target)
+                return true
+            } else {
+                printMenuBarModes()
+                return true
+            }
+        }
+
         // Open Settings Window
         if args.contains("settings") || args.contains("--settings") || args.contains("config") {
             DistributedNotificationCenter.default().postNotificationName(
@@ -156,6 +168,46 @@ public enum CLIHandler {
         let theme = ThemeRegistry.theme(for: cleanID)
         SettingsStore.shared.selectTheme(theme.id)
         print("\n" + green("✓") + " Theme " + bold(theme.name) + " (\(theme.id)) activated successfully!\n")
+    }
+
+    // MARK: - Menu Bar Display Modes CLI
+    private static func printMenuBarModes() {
+        let settings = SettingsStore.shared
+        print("\n" + bold("// SEEUSAGE MENU BAR DISPLAY MODES") + "\n")
+        for mode in MenuBarDisplayMode.allCases {
+            let isCurrent = settings.menuBarDisplayMode == mode
+            let mark = isCurrent ? green("[✓ ACTIVE]") : dim("[        ]")
+            let idStr = cyan(mode.rawValue.padding(toLength: 12, withPad: " ", startingAt: 0))
+            let nameStr = bold(mode.title.padding(toLength: 16, withPad: " ", startingAt: 0))
+            let subStr = dim(mode.subtitle)
+            print("  \(mark) \(idStr) \(nameStr) \(subStr)")
+        }
+        print("\n  Use: " + bold("seeusage mode <id>") + " to change menu bar display style.\n")
+    }
+
+    private static func setMenuBarMode(_ target: String) {
+        let clean = target.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let resolvedMode: MenuBarDisplayMode?
+        switch clean {
+        case "percent", "lowest", "default":
+            resolvedMode = .percent
+        case "dual", "double", "split":
+            resolvedMode = .dual
+        case "gauge", "bar", "meter":
+            resolvedMode = .gauge
+        case "icon", "icononly", "dot":
+            resolvedMode = .iconOnly
+        default:
+            resolvedMode = MenuBarDisplayMode(rawValue: clean)
+        }
+
+        guard let mode = resolvedMode else {
+            print("\n" + red("✗") + " Unknown menu bar mode '" + target + "'. Available: percent, dual, gauge, iconOnly\n")
+            return
+        }
+
+        SettingsStore.shared.selectMenuBarMode(mode)
+        print("\n" + green("✓") + " Menu bar display style set to: " + bold(mode.title) + " (\(mode.rawValue))\n")
     }
 
     // MARK: - Mini Output (One-liner for Prompts)
@@ -451,6 +503,7 @@ public enum CLIHandler {
           seeusage settings
           seeusage themes
           seeusage theme <id>
+          seeusage mode [id]
           seeusage --mini
           seeusage --export <profile>
           seeusage --json
@@ -463,6 +516,7 @@ public enum CLIHandler {
           settings, config    Open SeeUsage settings window directly
           themes, --themes    List all available terminal and developer themes
           theme <id>          Set active theme by ID (e.g. `seeusage theme ocean`)
+          mode [id]           Set or list menu bar display style (percent, dual, gauge, iconOnly)
           --export <alias>    Output 'export CODEX_HOME=...' command (e.g. `seeusage --export cxp`)
           --shell-init [zsh]  Print shell functions and aliases to add to ~/.zshrc
           --no-color          Disable ANSI color codes
@@ -473,6 +527,7 @@ public enum CLIHandler {
           $ seeusage settings            # Open settings window with theme picker
           $ seeusage themes              # Show all themes (Emerald, Ocean, Grove, etc.)
           $ seeusage theme grove         # Activate Grove theme
+          $ seeusage mode dual           # Switch menu bar to Dual Quotas mode
           $ seeusage -m -c               # Instant prompt status: cxp: 2% (3h35m) | cxt: 92% | agy: 24%
           $ eval $(seeusage --export cxp)# Switch active shell to Codex Pessoal
           $ seeusage --json | jq .       # Inspect programmatic JSON metrics

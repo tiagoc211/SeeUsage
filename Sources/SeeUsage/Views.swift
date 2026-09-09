@@ -632,6 +632,7 @@ private var t3CardBackground: some View {
 
 // MARK: - Settings Tab Enum
 enum SettingsTab: String, CaseIterable, Identifiable {
+    case menubar = "menubar"
     case appearance = "appearance"
     case profiles = "profiles"
     case executables = "executables"
@@ -642,6 +643,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .menubar: return "Menu Bar"
         case .appearance: return "Appearance"
         case .profiles: return "Codex Profiles"
         case .executables: return "Executables"
@@ -652,6 +654,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
+        case .menubar: return "display & launch"
         case .appearance: return "themes & palette"
         case .profiles: return "codex accounts"
         case .executables: return "cli paths"
@@ -662,6 +665,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .menubar: return "menubar.rectangle"
         case .appearance: return "paintbrush.fill"
         case .profiles: return "person.crop.circle"
         case .executables: return "slider.horizontal.3"
@@ -674,7 +678,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 // MARK: - Settings View (Sidebar Navigation)
 public struct SettingsView: View {
     @Bindable var settings = SettingsStore.shared
-    @State private var selectedTab: SettingsTab = .appearance
+    @State private var selectedTab: SettingsTab = .menubar
     @State private var hoveredTab: SettingsTab?
     @State private var editingID: UUID?
     @State private var editName = ""
@@ -845,6 +849,16 @@ public struct SettingsView: View {
     @ViewBuilder
     private func tabBadge(for tab: SettingsTab, isSelected: Bool) -> some View {
         switch tab {
+        case .menubar:
+            Text(settings.menuBarDisplayMode.badgeLabel)
+                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1.5)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(Color.white.opacity(0.04))
+                )
         case .appearance:
             Text(settings.currentTheme.category == "Core Themes" ? "core" : "ext")
                 .font(.system(size: 8.5, weight: .bold, design: .monospaced))
@@ -888,6 +902,25 @@ public struct SettingsView: View {
 
             // Header Actions
             switch selectedTab {
+            case .menubar:
+                if settings.menuBarDisplayMode != .percent || !settings.menuBarShowIcon {
+                    Button {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            settings.selectMenuBarMode(.percent)
+                            settings.menuBarShowIcon = true
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 9))
+                            Text("reset default")
+                                .font(.system(size: 10, design: .monospaced))
+                        }
+                        .foregroundStyle(settings.currentTheme.textSecondary)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
             case .appearance:
                 if settings.selectedThemeID != "t3-default" {
                     Button {
@@ -940,6 +973,8 @@ public struct SettingsView: View {
     @ViewBuilder
     private var detailContent: some View {
         switch selectedTab {
+        case .menubar:
+            menuBarPane
         case .appearance:
             appearancePane
         case .profiles:
@@ -950,6 +985,222 @@ public struct SettingsView: View {
             syncPane
         case .about:
             aboutPane
+        }
+    }
+
+    // MARK: - Menu Bar & Display Pane
+    private var menuBarPane: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            // Section Header Description
+            VStack(alignment: .leading, spacing: 4) {
+                Text("// MENU BAR ITEM & LAUNCH")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.accent)
+
+                Text("Customize how SeeUsage presents quotas in your macOS menu bar and configure startup behavior.")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Live Simulated Menu Bar Preview
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Text("LIVE MENU BAR PREVIEW")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textSecondary)
+                        .tracking(0.8)
+
+                    Text("[MACOS TOP BAR]")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textMuted)
+
+                    Spacer()
+                }
+
+                HStack(spacing: 12) {
+                    // Simulated Menu Bar strip
+                    HStack(spacing: 10) {
+                        Image(systemName: "applelogo")
+                            .font(.system(size: 11))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+
+                        Text("SeeUsage")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(settings.currentTheme.textSecondary)
+
+                        Spacer()
+
+                        // Simulated active item
+                        HStack(spacing: 5) {
+                            menuBarPreviewContent
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(settings.currentTheme.accent.opacity(0.16))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .stroke(settings.currentTheme.accent.opacity(0.4), lineWidth: 1)
+                                )
+                        )
+
+                        Image(systemName: "wifi")
+                            .font(.system(size: 10))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+
+                        Image(systemName: "battery.100")
+                            .font(.system(size: 11))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(settings.currentTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(settings.currentTheme.border, lineWidth: 1)
+                    )
+                }
+            }
+
+            // Mode Selection Cards
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Text("DISPLAY STYLES")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textSecondary)
+                        .tracking(0.8)
+
+                    Text("[SELECT ONE]")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textMuted)
+
+                    Spacer()
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                    ForEach(MenuBarDisplayMode.allCases) { mode in
+                        MenuBarModeCard(
+                            mode: mode,
+                            isSelected: settings.menuBarDisplayMode == mode
+                        ) {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                settings.selectMenuBarMode(mode)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Additional Preferences
+            VStack(alignment: .leading, spacing: 10) {
+                Text("ADDITIONAL PREFERENCES")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.textSecondary)
+                    .tracking(0.8)
+
+                VStack(spacing: 8) {
+                    // Show Icon Toggle
+                    if settings.menuBarDisplayMode != .iconOnly {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Show Status Icon")
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(settings.currentTheme.textPrimary)
+                                Text("Display leading gauge icon before quota metrics")
+                                    .font(.system(size: 9.5, design: .monospaced))
+                                    .foregroundStyle(settings.currentTheme.textMuted)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $settings.menuBarShowIcon)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                        }
+                        .padding(12)
+                        .background(settings.currentTheme.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(settings.currentTheme.border, lineWidth: 1)
+                        )
+                    }
+
+                    // Launch at Login Toggle
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Launch at Login")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textPrimary)
+                            Text("Start SeeUsage automatically when logging into macOS")
+                                .font(.system(size: 9.5, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textMuted)
+                        }
+                        Spacer()
+                        Toggle("", isOn: $settings.launchAtLogin)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
+                    .padding(12)
+                    .background(settings.currentTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(settings.currentTheme.border, lineWidth: 1)
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var menuBarPreviewContent: some View {
+        let pct = UsageStore.shared.minRemainingPercent ?? 47
+        let cxPct = UsageStore.shared.codexLowestPercent ?? 92
+        let agPct = UsageStore.shared.antigravityLowestPercent ?? 81
+
+        switch settings.menuBarDisplayMode {
+        case .percent:
+            if settings.menuBarShowIcon {
+                Image(systemName: "gauge.with.needle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(settings.currentTheme.accent)
+            }
+            Text("\(pct)%")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(settings.currentTheme.textPrimary)
+
+        case .dual:
+            if settings.menuBarShowIcon {
+                Image(systemName: "bolt.horizontal.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(settings.currentTheme.accent)
+            }
+            Text("cx: \(cxPct)% · ag: \(agPct)%")
+                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .foregroundStyle(settings.currentTheme.textPrimary)
+
+        case .gauge:
+            HStack(spacing: 4) {
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.18))
+                        .frame(width: 24, height: 7)
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(settings.currentTheme.accent)
+                        .frame(width: CGFloat(pct) / 100.0 * 24, height: 6)
+                }
+                Text("\(pct)%")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.textPrimary)
+            }
+
+        case .iconOnly:
+            Circle()
+                .fill(settings.currentTheme.accent)
+                .frame(width: 8, height: 8)
+                .shadow(color: settings.currentTheme.accent.opacity(0.5), radius: 3)
         }
     }
 
@@ -1576,5 +1827,105 @@ public enum Formatters {
             return "1m ago"
         }
         return "\(minutes)m ago"
+    }
+}
+
+
+// MARK: - Menu Bar Mode Card View
+public struct MenuBarModeCard: View {
+    @Bindable var settings = SettingsStore.shared
+    let mode: MenuBarDisplayMode
+    let isSelected: Bool
+    let onSelect: () -> Void
+    @State private var isHovered = false
+
+    public var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(isSelected ? settings.currentTheme.accent.opacity(0.16) : settings.currentTheme.surfaceHover)
+                            .frame(width: 28, height: 28)
+
+                        modeIcon(for: mode)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textSecondary)
+                    }
+
+                    Spacer()
+
+                    ZStack {
+                        Circle()
+                            .stroke(isSelected ? settings.currentTheme.accent : settings.currentTheme.borderActive, lineWidth: 1.2)
+                            .frame(width: 15, height: 15)
+
+                        if isSelected {
+                            Circle()
+                                .fill(settings.currentTheme.accent)
+                                .frame(width: 7.5, height: 7.5)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mode.title)
+                        .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textPrimary)
+
+                    Text(mode.subtitle)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textMuted)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 4) {
+                    Text("Sample:")
+                        .font(.system(size: 8.5, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textMuted)
+
+                    Text(sampleText(for: mode))
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textSecondary)
+                }
+                .padding(.top, 2)
+            }
+            .padding(12)
+            .background(isSelected ? settings.currentTheme.surfaceHover : settings.currentTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(
+                        isSelected ? settings.currentTheme.accent : (isHovered ? settings.currentTheme.borderActive : settings.currentTheme.border),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+
+    @ViewBuilder
+    private func modeIcon(for mode: MenuBarDisplayMode) -> some View {
+        switch mode {
+        case .percent:
+            Image(systemName: "gauge.with.needle")
+        case .dual:
+            Image(systemName: "bolt.horizontal.fill")
+        case .gauge:
+            Image(systemName: "chart.bar.xaxis")
+        case .iconOnly:
+            Image(systemName: "circle.fill")
+        }
+    }
+
+    private func sampleText(for mode: MenuBarDisplayMode) -> String {
+        switch mode {
+        case .percent: return "⚡ 47%"
+        case .dual: return "cx: 92% · ag: 81%"
+        case .gauge: return "■■■□ 47%"
+        case .iconOnly: return "●"
+        }
     }
 }

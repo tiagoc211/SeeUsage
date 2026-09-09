@@ -86,3 +86,40 @@ public struct UsageSnapshot: Identifiable, Codable, Sendable {
         Date().timeIntervalSince(fetchedAt) > 600
     }
 }
+
+// MARK: - Menu Bar Display Modes
+public enum MenuBarDisplayMode: String, CaseIterable, Identifiable, Codable, Sendable {
+    case percent = "percent"      // Lowest Quota (e.g. 47%)
+    case dual = "dual"            // Dual Quotas (e.g. cx: 92% · ag: 81%)
+    case gauge = "gauge"          // Mini Graphic Gauge (e.g. ■■■□ 47%)
+    case iconOnly = "iconOnly"    // Status Dot / Icon Only
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .percent: return "Lowest Quota"
+        case .dual: return "Dual Quotas"
+        case .gauge: return "Mini Gauge"
+        case .iconOnly: return "Icon Only"
+        }
+    }
+
+    public var subtitle: String {
+        switch self {
+        case .percent: return "Shows icon and lowest remaining percentage across all services"
+        case .dual: return "Shows primary Codex and Antigravity quotas side by side"
+        case .gauge: return "Renders a high-resolution micro progress bar and percentage"
+        case .iconOnly: return "Ultra-clean status indicator with health color dot"
+        }
+    }
+
+    public var badgeLabel: String {
+        switch self {
+        case .percent: return "icon + %"
+        case .dual: return "cx + ag"
+        case .gauge: return "bar + %"
+        case .iconOnly: return "icon"
+        }
+    }
+}

@@ -49,6 +49,30 @@ public final class UsageStore {
         return minVal.map { Int(round($0)) }
     }
 
+    public var codexLowestPercent: Int? {
+        let codexIDs = Set(SettingsStore.shared.codexProfiles.map(\.id))
+        var minVal: Double? = nil
+        for (id, snapshot) in snapshots where codexIDs.contains(id) {
+            for window in snapshot.windows {
+                if let pct = window.remainingPercent {
+                    minVal = min(minVal ?? pct, pct)
+                }
+            }
+        }
+        return minVal.map { Int(round($0)) }
+    }
+
+    public var antigravityLowestPercent: Int? {
+        guard let snapshot = snapshots[SettingsStore.antigravityProfileID] else { return nil }
+        var minVal: Double? = nil
+        for window in snapshot.windows {
+            if let pct = window.remainingPercent {
+                minVal = min(minVal ?? pct, pct)
+            }
+        }
+        return minVal.map { Int(round($0)) }
+    }
+
     public init() {
         loadCache()
         startTimer()

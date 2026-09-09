@@ -1,5 +1,10 @@
 import Foundation
 import Observation
+import ServiceManagement
+
+public extension Notification.Name {
+    static let menuBarSettingsChanged = Notification.Name("app.seeusage.menuBarSettingsChanged")
+}
 
 @Observable
 public final class SettingsStore {
@@ -27,6 +32,40 @@ public final class SettingsStore {
 
     public var currentTheme: AppTheme {
         ThemeRegistry.theme(for: selectedThemeID)
+    }
+
+    public var menuBarDisplayMode: MenuBarDisplayMode {
+        didSet {
+            Self.defaults.set(menuBarDisplayMode.rawValue, forKey: "menuBarDisplayMode")
+            UserDefaults.standard.set(menuBarDisplayMode.rawValue, forKey: "menuBarDisplayMode")
+            NotificationCenter.default.post(name: .menuBarSettingsChanged, object: nil)
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.menuBarSettingsChanged"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
+    }
+
+    public var menuBarShowIcon: Bool {
+        didSet {
+            Self.defaults.set(menuBarShowIcon, forKey: "menuBarShowIcon")
+            UserDefaults.standard.set(menuBarShowIcon, forKey: "menuBarShowIcon")
+            NotificationCenter.default.post(name: .menuBarSettingsChanged, object: nil)
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.menuBarSettingsChanged"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
+    }
+
+    public var launchAtLogin: Bool {
+        didSet {
+            updateLaunchAtLogin(enabled: launchAtLogin)
+        }
     }
 
     public var refreshIntervalMinutes: Int {
@@ -64,6 +103,22 @@ public final class SettingsStore {
             ?? fallback.string(forKey: "selectedThemeID")
             ?? "t3-default"
 
+        let rawMode = prefs.string(forKey: "menuBarDisplayMode")
+            ?? fallback.string(forKey: "menuBarDisplayMode")
+            ?? "percent"
+        self.menuBarDisplayMode = MenuBarDisplayMode(rawValue: rawMode) ?? .percent
+
+        let showIcon = prefs.object(forKey: "menuBarShowIcon") as? Bool
+            ?? fallback.object(forKey: "menuBarShowIcon") as? Bool
+            ?? true
+        self.menuBarShowIcon = showIcon
+
+        if #available(macOS 13.0, *) {
+            self.launchAtLogin = SMAppService.mainApp.status == .enabled
+        } else {
+            self.launchAtLogin = false
+        }
+
         let interval = prefs.integer(forKey: "refreshIntervalMinutes") != 0
             ? prefs.integer(forKey: "refreshIntervalMinutes")
             : fallback.integer(forKey: "refreshIntervalMinutes")
@@ -100,10 +155,50 @@ public final class SettingsStore {
                 self?.selectedThemeID = newTheme
             }
         }
+
+        // Listen for live menu bar settings updates across processes
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("app.seeusage.menuBarSettingsChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            if let raw = Self.defaults.string(forKey: "menuBarDisplayMode"),
+               let mode = MenuBarDisplayMode(rawValue: raw),
+               mode != self.menuBarDisplayMode {
+                self.menuBarDisplayMode = mode
+            }
+            if let icon = Self.defaults.object(forKey: "menuBarShowIcon") as? Bool,
+               icon != self.menuBarShowIcon {
+                self.menuBarShowIcon = icon
+            }
+        }
     }
 
     public func selectTheme(_ id: String) {
         self.selectedThemeID = id
+    }
+
+    public func selectMenuBarMode(_ mode: MenuBarDisplayMode) {
+        self.menuBarDisplayMode = mode
+    }
+
+    private func updateLaunchAtLogin(enabled: Bool) {
+        if #available(macOS 13.0, *) {
+            do {
+                if enabled {
+                    if SMAppService.mainApp.status != .enabled {
+                        try SMAppService.mainApp.register()
+                    }
+                } else {
+                    if SMAppService.mainApp.status == .enabled {
+                        try SMAppService.mainApp.unregister()
+                    }
+                }
+            } catch {
+                print("Could not update Launch at Login: \(error)")
+            }
+        }
     }
 
     private func saveProfiles() {
@@ -139,12 +234,12 @@ public final class SettingsStore {
     public static func discoverCodexProfiles() -> [UsageProfile] {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.path
+        let baseDir = "\(home)/.codex-profiles"
         var discovered: [UsageProfile] = []
 
-        let profilesDir = "\(home)/.codex-profiles"
-        if let items = try? fm.contentsOfDirectory(atPath: profilesDir) {
+        if let items = try? fm.contentsOfDirectory(atPath: baseDir) {
             for item in items.sorted() {
-                let fullPath = "\(profilesDir)/\(item)"
+                let fullPath = "\(baseDir)/\(item)"
                 var isDir: ObjCBool = false
                 if fm.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue {
                     if isCodexHome(path: fullPath) {
