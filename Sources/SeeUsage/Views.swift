@@ -408,7 +408,7 @@ func quotaColor(for percent: Double?) -> Color {
     return Color.accentColor
 }
 
-// MARK: - Settings View
+// MARK: - Settings View (Modern macOS Settings UI)
 public struct SettingsView: View {
     @Bindable var settings = SettingsStore.shared
     @State private var editingID: UUID?
@@ -417,90 +417,195 @@ public struct SettingsView: View {
     public init() {}
 
     public var body: some View {
-        Form {
-            Section {
-                List {
-                    ForEach(settings.codexProfiles) { profile in
-                        HStack {
-                            if editingID == profile.id {
-                                TextField("Nome", text: $editName)
-                                    .textFieldStyle(.roundedBorder)
-                                Button("Guardar") {
-                                    settings.renameProfile(id: profile.id, newName: editName)
-                                    editingID = nil
-                                }
-                                .buttonStyle(.borderedProminent)
-                            } else {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(profile.name)
-                                        .font(.system(size: 12, weight: .semibold))
-                                    Text(profile.homePath ?? "Padrão (~/.codex)")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button {
-                                    editingID = profile.id
-                                    editName = profile.name
-                                } label: {
-                                    Image(systemName: "pencil")
-                                }
-                                .buttonStyle(.plain)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Section 1: Perfis Codex
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label("Perfis Codex", systemImage: "person.2.fill")
+                            .font(.system(size: 13, weight: .bold))
+                        Spacer()
+                        Button {
+                            chooseCodexHome()
+                        } label: {
+                            Label("Adicionar Perfil", systemImage: "plus")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
 
-                                Button {
-                                    settings.removeProfile(id: profile.id)
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .foregroundStyle(.red)
+                    VStack(spacing: 0) {
+                        if settings.codexProfiles.isEmpty {
+                            Text("Nenhum perfil configurado.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 24)
+                        } else {
+                            ForEach(Array(settings.codexProfiles.enumerated()), id: \.element.id) { index, profile in
+                                VStack(spacing: 0) {
+                                    HStack(alignment: .center, spacing: 12) {
+                                        Image(systemName: "folder.fill")
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(Color.accentColor)
+
+                                        if editingID == profile.id {
+                                            HStack(spacing: 8) {
+                                                TextField("Nome do Perfil", text: $editName)
+                                                    .textFieldStyle(.roundedBorder)
+                                                    .font(.system(size: 12))
+                                                Button("Guardar") {
+                                                    settings.renameProfile(id: profile.id, newName: editName)
+                                                    editingID = nil
+                                                }
+                                                .buttonStyle(.borderedProminent)
+                                                .controlSize(.small)
+                                                Button("Cancelar") {
+                                                    editingID = nil
+                                                }
+                                                .buttonStyle(.bordered)
+                                                .controlSize(.small)
+                                            }
+                                        } else {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(profile.name)
+                                                    .font(.system(size: 13, weight: .semibold))
+                                                Text(profile.homePath ?? "Padrão (~/.codex)")
+                                                    .font(.system(size: 11, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.middle)
+                                            }
+
+                                            Spacer()
+
+                                            HStack(spacing: 8) {
+                                                Button {
+                                                    editingID = profile.id
+                                                    editName = profile.name
+                                                } label: {
+                                                    Image(systemName: "pencil")
+                                                        .font(.system(size: 12))
+                                                }
+                                                .buttonStyle(.borderless)
+                                                .help("Renomear")
+
+                                                Button {
+                                                    settings.removeProfile(id: profile.id)
+                                                } label: {
+                                                    Image(systemName: "trash")
+                                                        .font(.system(size: 12))
+                                                        .foregroundStyle(.red)
+                                                }
+                                                .buttonStyle(.borderless)
+                                                .help("Remover")
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+
+                                    if index < settings.codexProfiles.count - 1 {
+                                        Divider()
+                                            .padding(.leading, 42)
+                                    }
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
-                        .padding(.vertical, 2)
                     }
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                    )
                 }
-                .frame(minHeight: 120)
 
-                Button("+ Adicionar perfil Codex...") {
-                    chooseCodexHome()
+                Divider()
+
+                // Section 2: Executáveis
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Caminhos dos Executáveis", systemImage: "terminal")
+                        .font(.system(size: 13, weight: .bold))
+
+                    VStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Codex CLI")
+                                    .font(.system(size: 12, weight: .medium))
+                                Spacer()
+                                Text("Padrão: /opt/homebrew/bin/codex")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            TextField("Deixar em branco para deteção automática", text: $settings.codexExecutableOverride)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11, design: .monospaced))
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Antigravity CLI (agy)")
+                                    .font(.system(size: 12, weight: .medium))
+                                Spacer()
+                                Text("Padrão: ~/.local/bin/agy")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            TextField("Deixar em branco para deteção automática", text: $settings.antigravityExecutableOverride)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11, design: .monospaced))
+                        }
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                    )
                 }
-            } header: {
-                Text("Perfis Codex").font(.headline)
-            }
 
-            Section {
-                VStack(alignment: .leading, spacing: 8) {
+                Divider()
+
+                // Section 3: Frequência de Atualização
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Atualização Automática", systemImage: "clock.arrow.circlepath")
+                        .font(.system(size: 13, weight: .bold))
+
                     HStack {
-                        Text("Codex:")
-                            .frame(width: 80, alignment: .leading)
-                        TextField("Automático (/opt/homebrew/bin/codex)", text: $settings.codexExecutableOverride)
-                            .textFieldStyle(.roundedBorder)
+                        Text("Intervalo de sincronização:")
+                            .font(.system(size: 12))
+                        Spacer()
+                        Picker("", selection: $settings.refreshIntervalMinutes) {
+                            Text("A cada 5 minutos").tag(5)
+                            Text("A cada 10 minutos").tag(10)
+                            Text("A cada 15 minutos").tag(15)
+                            Text("A cada 30 minutos").tag(30)
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 170)
                     }
-                    HStack {
-                        Text("Antigravity:")
-                            .frame(width: 80, alignment: .leading)
-                        TextField("Automático (~/.local/bin/agy)", text: $settings.antigravityExecutableOverride)
-                            .textFieldStyle(.roundedBorder)
-                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                    )
                 }
-            } header: {
-                Text("Caminhos dos Executáveis").font(.headline)
             }
-
-            Section {
-                Picker("Intervalo de atualização:", selection: $settings.refreshIntervalMinutes) {
-                    Text("5 minutos").tag(5)
-                    Text("10 minutos").tag(10)
-                    Text("15 minutos").tag(15)
-                    Text("30 minutos").tag(30)
-                }
-                .pickerStyle(.menu)
-            } header: {
-                Text("Atualização Automática").font(.headline)
-            }
+            .padding(20)
         }
-        .padding(20)
-        .frame(width: 460, height: 400)
+        .frame(width: 480, height: 460)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func chooseCodexHome() {
