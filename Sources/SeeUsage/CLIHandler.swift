@@ -73,7 +73,7 @@ public enum CLIHandler {
                 let url = URL(fileURLWithPath: appPath)
                 _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
             }
-            print("\n" + green("✓") + " Janela de Definições aberta.\n")
+            print("\n" + green("✓") + " Settings window opened.\n")
             return true
         }
 
@@ -139,7 +139,7 @@ public enum CLIHandler {
             let themes = ThemeRegistry.allThemes.filter { $0.category == category }
             for t in themes {
                 let isCurrent = settings.selectedThemeID == t.id
-                let mark = isCurrent ? green("[✓ ATIVO]") : dim("[     ]")
+                let mark = isCurrent ? green("[✓ ACTIVE]") : dim("[        ]")
                 let idStr = cyan(t.id.padding(toLength: 14, withPad: " ", startingAt: 0))
                 let nameStr = bold(t.name.padding(toLength: 16, withPad: " ", startingAt: 0))
                 let tagStr = dim(t.tagline)
@@ -147,7 +147,7 @@ public enum CLIHandler {
             }
             print("")
         }
-        print("  Use: " + bold("seeusage theme <id>") + " para ativar um tema via terminal.")
+        print("  Use: " + bold("seeusage theme <id>") + " to activate a theme via terminal.")
         print("")
     }
 
@@ -155,7 +155,7 @@ public enum CLIHandler {
         let cleanID = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let theme = ThemeRegistry.theme(for: cleanID)
         SettingsStore.shared.selectTheme(theme.id)
-        print("\n" + green("✓") + " Tema " + bold(theme.name) + " (\(theme.id)) ativado com sucesso!\n")
+        print("\n" + green("✓") + " Theme " + bold(theme.name) + " (\(theme.id)) activated successfully!\n")
     }
 
     // MARK: - Mini Output (One-liner for Prompts)
@@ -219,7 +219,7 @@ public enum CLIHandler {
         // 1. CODEX PROFILES
         print(bold(cyan("// CODEX PROFILES")))
         if settings.codexProfiles.isEmpty {
-            print("  " + dim("Nenhum perfil configurado."))
+            print("  " + dim("No profiles configured."))
         } else {
             for profile in settings.codexProfiles {
                 let alias = profileAlias(name: profile.name)
@@ -482,8 +482,8 @@ public enum CLIHandler {
     // MARK: - Helpers
     public static func profileAlias(name: String) -> String {
         let low = name.lowercased()
-        if low.contains("pessoal") { return "cxp" }
-        if low.contains("trabalho") { return "cxt" }
+        if low.contains("pessoal") || low.contains("personal") { return "cxp" }
+        if low.contains("trabalho") || low.contains("work") { return "cxt" }
         return low.replacingOccurrences(of: " ", with: "-")
     }
 

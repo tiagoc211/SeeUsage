@@ -9,7 +9,7 @@ public enum CodexClient {
         guard let homePath = profile.homePath, !homePath.isEmpty else {
             return UsageSnapshot(
                 profileID: profile.id,
-                error: "Caminho CODEX_HOME não configurado."
+                error: "CODEX_HOME path not configured."
             )
         }
 
@@ -32,7 +32,7 @@ public enum CodexClient {
             guard result.terminationStatus == 0 || !result.standardOutput.isEmpty else {
                 return UsageSnapshot(
                     profileID: profile.id,
-                    error: "Perfil Codex não autenticado."
+                    error: "Codex profile not authenticated."
                 )
             }
 
@@ -58,12 +58,12 @@ public enum CodexClient {
             else { continue }
 
             if let errorObj = json["error"] as? [String: Any] {
-                let msg = errorObj["message"] as? String ?? "Erro ao consultar limites do Codex."
+                let msg = errorObj["message"] as? String ?? "Error querying Codex limits."
                 return UsageSnapshot(profileID: profileID, error: msg)
             }
 
             guard let result = json["result"] as? [String: Any] else {
-                return UsageSnapshot(profileID: profileID, error: "Resposta inesperada do Codex.")
+                return UsageSnapshot(profileID: profileID, error: "Unexpected response from Codex.")
             }
 
             var limitDict: [String: Any]? = result["rateLimits"] as? [String: Any]
@@ -72,7 +72,7 @@ public enum CodexClient {
             }
 
             guard let limits = limitDict else {
-                return UsageSnapshot(profileID: profileID, error: "Perfil Codex não autenticado.")
+                return UsageSnapshot(profileID: profileID, error: "Codex profile not authenticated.")
             }
 
             let rawPlan = limits["planType"] as? String
@@ -122,7 +122,7 @@ public enum CodexClient {
 
         return UsageSnapshot(
             profileID: profileID,
-            error: "Não foi possível interpretar a usage do Codex."
+            error: "Failed to parse Codex usage response."
         )
     }
 
@@ -135,12 +135,12 @@ public enum CodexClient {
         case 1440:
             return "24 h"
         case 10080:
-            return "7 dias"
+            return "7 days"
         default:
             if minutes % 10080 == 0 {
                 return "\(minutes / 10080) dias"
             } else if minutes % 1440 == 0 {
-                return "\(minutes / 1440) dias"
+                return "\(minutes / 1440) days"
             } else if minutes % 60 == 0 {
                 return "\(minutes / 60) h"
             } else {

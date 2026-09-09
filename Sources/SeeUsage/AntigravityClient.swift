@@ -28,9 +28,9 @@ public enum AntigravityClient {
             guard result.terminationStatus == 0 else {
                 let err = result.errorString
                 if err.localizedCaseInsensitiveContains("auth") || err.localizedCaseInsensitiveContains("sign in") || err.localizedCaseInsensitiveContains("login") {
-                    return UsageSnapshot(profileID: profileID, error: "Inicia sessão no Antigravity CLI.")
+                    return UsageSnapshot(profileID: profileID, error: "Log in to Antigravity CLI.")
                 }
-                return UsageSnapshot(profileID: profileID, error: "Inicia sessão no Antigravity CLI.")
+                return UsageSnapshot(profileID: profileID, error: "Log in to Antigravity CLI.")
             }
 
             return parse(output: result.outputString, profileID: profileID)
@@ -64,7 +64,7 @@ public enum AntigravityClient {
                 label = "5 h"
                 duration = 300
             } else if lowerLabel.contains("weekly") {
-                label = "7 dias"
+                label = "7 days"
                 duration = 10080
             } else {
                 label = rawLabel
@@ -94,7 +94,7 @@ public enum AntigravityClient {
         if windows.isEmpty {
             return UsageSnapshot(
                 profileID: profileID,
-                error: "Não foi possível interpretar a usage do Antigravity."
+                error: "Failed to parse Antigravity usage response."
             )
         }
 

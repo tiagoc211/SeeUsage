@@ -22,11 +22,11 @@ public enum ProcessRunnerError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .executableNotFound(let name):
-            return "\(name) CLI não encontrado."
+            return "\(name) CLI not found."
         case .timedOut:
-            return "Tempo limite excedido."
+            return "Operation timed out."
         case .launchFailed(let name):
-            return "Falha ao iniciar \(name)."
+            return "Failed to launch \(name)."
         }
     }
 }

@@ -120,7 +120,7 @@ public final class UsageStore {
             for profile in codexProfiles {
                 group.addTask {
                     guard let exe = codexPath else {
-                        return (profile.id, UsageSnapshot(profileID: profile.id, error: "Codex CLI não encontrado."))
+                        return (profile.id, UsageSnapshot(profileID: profile.id, error: "Codex CLI not found."))
                     }
                     let snapshot = await CodexClient.fetch(profile: profile, executable: exe)
                     return (profile.id, snapshot)
@@ -130,7 +130,7 @@ public final class UsageStore {
             // Antigravity profile
             group.addTask {
                 guard let exe = agyPath else {
-                    return (agyProfileID, UsageSnapshot(profileID: agyProfileID, error: "Antigravity CLI não encontrado."))
+                    return (agyProfileID, UsageSnapshot(profileID: agyProfileID, error: "Antigravity CLI not found."))
                 }
                 let snapshot = await AntigravityClient.fetch(profileID: agyProfileID, executable: exe)
                 return (agyProfileID, snapshot)

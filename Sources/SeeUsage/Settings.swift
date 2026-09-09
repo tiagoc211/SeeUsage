@@ -165,7 +165,7 @@ public final class SettingsStore {
                 discovered.append(UsageProfile(
                     id: UUIDHelper.deterministic(for: "codex:\(defaultCodex)"),
                     provider: .codex,
-                    name: "Principal",
+                    name: "Main",
                     homePath: defaultCodex
                 ))
             }

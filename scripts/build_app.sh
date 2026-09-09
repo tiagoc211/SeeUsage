@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 cd "${ROOT_DIR}"
 
-echo "==> Compilando SeeUsage em release..."
+echo "==> Compiling SeeUsage in release mode..."
 if command -v conda >/dev/null 2>&1 && conda env list | grep -q "seeu"; then
     conda run -n seeu swift build -c release
 else
@@ -20,7 +20,7 @@ CONTENTS_DIR="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 
-echo "==> Empacotando ${APP_DIR}..."
+echo "==> Packaging ${APP_DIR}..."
 rm -rf "${APP_DIR}"
 mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
 
@@ -59,8 +59,8 @@ cat << 'EOF' > "${CONTENTS_DIR}/Info.plist"
 EOF
 
 if command -v codesign >/dev/null 2>&1; then
-    echo "==> Assinando ad-hoc..."
+    echo "==> Signing ad-hoc..."
     codesign --force --deep --sign - "${APP_DIR}" 2>/dev/null || true
 fi
 
-echo "==> Concluído: ${APP_DIR}"
+echo "==> Built: ${APP_DIR}"

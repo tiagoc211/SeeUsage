@@ -23,7 +23,7 @@ final class CodexParsingTests: XCTestCase {
         XCTAssertNotNil(w1.resetsAt)
 
         let w2 = snapshot.windows[1]
-        XCTAssertEqual(w2.label, "7 dias")
+        XCTAssertEqual(w2.label, "7 days")
         XCTAssertEqual(w2.remainingPercent, 62.0)
         XCTAssertEqual(w2.durationMinutes, 10080)
     }
@@ -94,8 +94,8 @@ final class CodexParsingTests: XCTestCase {
         XCTAssertEqual(CodexClient.formatDuration(minutes: 60), "1 h")
         XCTAssertEqual(CodexClient.formatDuration(minutes: 300), "5 h")
         XCTAssertEqual(CodexClient.formatDuration(minutes: 1440), "24 h")
-        XCTAssertEqual(CodexClient.formatDuration(minutes: 10080), "7 dias")
-        XCTAssertEqual(CodexClient.formatDuration(minutes: 20160), "2 dias")
+        XCTAssertEqual(CodexClient.formatDuration(minutes: 10080), "7 days")
+        XCTAssertEqual(CodexClient.formatDuration(minutes: 20160), "14 days")
         XCTAssertEqual(CodexClient.formatDuration(minutes: 45), "45 min")
     }
 }

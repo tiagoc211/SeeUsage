@@ -23,11 +23,11 @@ final class AntigravityParsingTests: XCTestCase {
         XCTAssertEqual(gemini5h?.remainingPercent, 63.0)
         XCTAssertNotNil(gemini5h?.resetsAt)
 
-        let geminiWeekly = snapshot.windows.first { $0.scope == "Gemini" && $0.label == "7 dias" }
+        let geminiWeekly = snapshot.windows.first { $0.scope == "Gemini" && $0.label == "7 days" }
         XCTAssertNotNil(geminiWeekly)
         XCTAssertEqual(geminiWeekly?.remainingPercent, 84.0)
 
-        let claudeWeekly = snapshot.windows.first { $0.scope == "Claude and GPT" && $0.label == "7 dias" }
+        let claudeWeekly = snapshot.windows.first { $0.scope == "Claude and GPT" && $0.label == "7 days" }
         XCTAssertNotNil(claudeWeekly)
         XCTAssertEqual(claudeWeekly?.remainingPercent, 100.0)
     }

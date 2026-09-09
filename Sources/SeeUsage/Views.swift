@@ -106,7 +106,7 @@ struct T3CopyButton: View {
             )
         }
         .buttonStyle(.plain)
-        .help("Copiar comando: \(command)")
+        .help("Copy command: \(command)")
     }
 }
 
@@ -212,7 +212,7 @@ public struct UsagePopoverView: View {
             HStack(spacing: 3) {
                 T3ToolbarButton(
                     icon: "arrow.clockwise",
-                    helpText: "Atualizar quotas",
+                    helpText: "Refresh quotas",
                     isSpinning: store.isRefreshing
                 ) {
                     Task { await store.refresh() }
@@ -220,14 +220,14 @@ public struct UsagePopoverView: View {
 
                 T3ToolbarButton(
                     icon: "gearshape",
-                    helpText: "Definições"
+                    helpText: "Settings"
                 ) {
                     SettingsWindowManager.shared.show()
                 }
 
                 T3ToolbarButton(
                     icon: "power",
-                    helpText: "Sair"
+                    helpText: "Quit"
                 ) {
                     NSApplication.shared.terminate(nil)
                 }
@@ -642,11 +642,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .appearance: return "Aparência"
-        case .profiles: return "Perfis Codex"
-        case .executables: return "Executáveis"
-        case .sync: return "Sincronização"
-        case .about: return "Sobre & CLI"
+        case .appearance: return "Appearance"
+        case .profiles: return "Codex Profiles"
+        case .executables: return "Executables"
+        case .sync: return "Sync"
+        case .about: return "About & CLI"
         }
     }
 
@@ -962,7 +962,7 @@ public struct SettingsView: View {
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.accent)
 
-                Text("Escolha o tema visual para o SeeUsage. As alterações são aplicadas instantaneamente em toda a aplicação e na barra de menus.")
+                Text("Choose a visual theme for SeeUsage. Changes apply immediately across the app and menu bar.")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1114,7 +1114,7 @@ public struct SettingsView: View {
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.cyan)
 
-                Text("Configure as pastas de home para cada conta ou perfil do Codex CLI.")
+                Text("Configure home directories for each Codex CLI profile.")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.textSecondary)
             }
@@ -1211,7 +1211,7 @@ public struct SettingsView: View {
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.textSecondary)
 
-                Text("Especifique caminhos customizados para os binários se não estiverem no PATH padrão.")
+                Text("Specify custom executable paths if not located in standard PATH.")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.textSecondary)
             }
@@ -1264,7 +1264,7 @@ public struct SettingsView: View {
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.textSecondary)
 
-                Text("Frequência de consulta de quotas de rate limit em background.")
+                Text("Background quota polling frequency.")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.textSecondary)
             }
@@ -1274,7 +1274,7 @@ public struct SettingsView: View {
                     Text("polling rate limit:")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(settings.currentTheme.textPrimary)
-                    Text("Atualiza automaticamente as métricas em segundo plano.")
+                    Text("Automatically refresh metrics in the background.")
                         .font(.system(size: 9.5, design: .monospaced))
                         .foregroundStyle(settings.currentTheme.textMuted)
                 }
@@ -1301,7 +1301,7 @@ public struct SettingsView: View {
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.green)
 
-                Text("Monitor de Quotas e Rate Limits para Codex e Antigravity.")
+                Text("Rate limit and quota monitor for Codex and Antigravity.")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(settings.currentTheme.textSecondary)
             }
@@ -1485,7 +1485,7 @@ struct ThemeCardView: View {
                         HStack(spacing: 3) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 9, weight: .bold))
-                            Text("ativo")
+                            Text("active")
                                 .font(.system(size: 9.5, weight: .bold, design: .monospaced))
                         }
                         .foregroundStyle(theme.accent)
@@ -1500,7 +1500,7 @@ struct ThemeCardView: View {
                                 )
                         )
                     } else if isHovered {
-                        Text("usar →")
+                        Text("apply →")
                             .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                             .foregroundStyle(theme.accent)
                     }

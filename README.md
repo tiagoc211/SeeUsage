@@ -1,148 +1,155 @@
 # SeeUsage
 
-Uma aplicação nativa macOS para a barra de menus que monitoriza e apresenta, num único local, as quotas e rate limits de múltiplos perfis **Codex** (`CODEX_HOME`) e do **Antigravity** (`agy`).
+A native macOS menu bar app and CLI that monitors and displays, in a single place, the quotas and rate limits across multiple **Codex** profiles (`CODEX_HOME`) and **Antigravity** (`agy`).
 
 ```text
 SeeUsage                     ↻  ⚙
-Atualizado agora
+Updated just now
 
 CODEX
 
-Pessoal                       Plus
+Personal                      Plus
 5 h        █████████░   90%
-           Reset em 4 h 42 min
+           Resets in 4h 42m
 
-7 dias     ██████░░░░   62%
-           Reset domingo às 20:56
+7 days     ██████░░░░   62%
+           Resets Sunday at 20:56
 
-Trabalho                      Plus
+Work                          Plus
 5 h        ░░░░░░░░░░    1%
-           Reset em 25 min
+           Resets in 25m
 
-7 dias     █████░░░░░   53%
-           Reset domingo às 21:17
+7 days     █████░░░░░   53%
+           Resets Sunday at 21:17
 
 ANTIGRAVITY
 
 Gemini
 5 h        ██████░░░░   63%
-           Reset em 1 h 2 min
-7 dias     ████████░░   84%
-           Reset segunda às 03:47
+           Resets in 1h 2m
+7 days     ████████░░   84%
+           Resets Monday at 03:47
 
 Claude and GPT
 5 h        ██████████  100%
-           Reset em 3 h 55 min
-7 dias     ██████████  100%
-           Reset quarta às 03:40
+           Resets in 3h 55m
+7 days     ██████████  100%
+           Resets Wednesday at 03:40
 ```
 
 ---
 
-## Funcionalidades
+## Features
 
-- **Multi-Perfil Codex**: Consulta em simultâneo múltiplos perfis (`~/.codex-profiles/*` e `~/.codex`) com planos independentes, sem trocar a conta ativa do terminal nem tocar em `auth.json`.
-- **Antigravity**: Consulta a identidade ativa no `agy` (`/usage`) suportando múltiplos modelos e quotas (Gemini, Claude, GPT).
-- **Menu Bar Informativa**: Apresenta a **menor quota restante** atual (ex: `1%`), alertando para quotas críticas em tempo real.
-- **Janelas Dinâmicas**: Suporta e humaniza durações genéricas de janelas (`5 h`, `24 h`, `7 dias`, etc.) e tempos relativos de reset adaptados ao fuso horário local.
-- **Consulta Concorrente e Resiliente**: Atualiza todos os perfis em paralelo; se um provider falhar, os restantes continuam visíveis.
-- **Processos Temporários**: Inicia processos temporários e fecha-os de imediato após a consulta, sem daemons nem processos órfãos.
-- **100% Privado e Local**: Nenhuma credencial ou token é guardado, copiado ou transmitido. Sem telemetria ou servidores externos.
-
----
-
-## Requisitos
-
-- macOS 14.0+ (Sonoma ou superior)
-- Apple Silicon ou Intel
-- Codex CLI (`codex`) instalado
-- Antigravity CLI (`agy`) instalado
-- Ambiente Conda dedicado: `seeu`
+- **Multi-Profile Codex**: Simultaneously queries multiple profiles (`~/.codex-profiles/*` and `~/.codex`) with independent plans without modifying active terminal accounts or touching `auth.json`.
+- **Antigravity**: Queries active `agy` CLI credentials (`/usage`), supporting all model families (Gemini, Claude, GPT).
+- **Informative Menu Bar**: Displays the **lowest remaining quota** percentage (e.g. `1%`), highlighting critical quotas in real time.
+- **Dynamic Themes & Palettes**: Includes 10 customizable terminal themes (Emerald, Ocean, Grove, Iris, Ember, Tokyo Night, Matrix Cyber, Palenight, Dracula, Solarized Dark) with instant live preview.
+- **Settings Sidebar Window**: Modern preferences interface to manage profiles, themes, custom executable paths, and polling intervals.
+- **Fast CLI Integration**: `seeusage` commands for shell prompts (`--mini`), full status table, themes management, and `CODEX_HOME` switcher scripts.
+- **100% Private & Local**: Zero credentials or tokens are saved, copied, or transmitted. No telemetry or external server tracking.
 
 ---
 
-## Como Funciona
+## Requirements
+
+- macOS 14.0+ (Sonoma or newer)
+- Apple Silicon or Intel
+- Codex CLI (`codex`) installed
+- Antigravity CLI (`agy`) installed
+- Dedicated Conda environment: `seeu` (or system Swift 5.9+)
+
+---
+
+## How It Works
 
 ### Codex
-A SeeUsage lança temporariamente o processo oficial do Codex com o ambiente isolado do perfil pretendido:
+SeeUsage temporarily spawns an isolated Codex process for each configured profile:
 ```bash
 CODEX_HOME="/path/to/profile" codex app-server --stdio
 ```
-Comunica via JSON-RPC (`initialize` → `initialized` → `account/rateLimits/read`), extrai os limites da sessão e semanais, e termina o subprocesso imediatamente. Nenhuma credencial (`auth.json`) é lida ou modificada.
+It communicates via JSON-RPC (`initialize` → `initialized` → `account/rateLimits/read`), extracts session and weekly limits, and immediately terminates the subprocess. No credentials (`auth.json`) are read or modified directly.
 
 ### Antigravity
-A SeeUsage invoca o comando read-only do CLI oficial:
+SeeUsage executes the official read-only CLI command:
 ```bash
 agy -p "/usage" --output-format text --print-timeout 30s
 ```
-Interpreta as linhas estruturadas devolvidas por cada grupo de modelos e calcula as percentagens restantes sem gastar quota de inferência.
+It parses structured quota lines for each model group and computes remaining percentages without consuming any inference tokens.
 
 ---
 
-## Desenvolvimento e Build
+## Development & Testing
 
-O desenvolvimento e testes são realizados através do ambiente Conda `seeu`:
+Development and tests run through the `seeu` Conda environment:
 
 ```bash
-# Ativar o ambiente Conda
+# Activate conda environment
 conda activate seeu
 
-# Compilar em modo debug
+# Compile in debug mode
 conda run -n seeu swift build
 
-# Executar a suite de testes unitários
+# Run unit tests
 conda run -n seeu swift test
 
-# Compilar em modo release
+# Compile in release mode
 conda run -n seeu swift build -c release
 
-# Obter dump em tempo real das quotas via CLI
-conda run -n seeu swift run SeeUsage --dump
+# Inspect CLI dashboard
+conda run -n seeu swift run SeeUsage
 ```
 
 ---
 
-## Empacotamento e Instalação
+## Packaging & Installation
 
-### Criar a Aplicação macOS (`dist/SeeUsage.app`)
+### Build macOS App Bundle (`dist/SeeUsage.app`)
 ```bash
 ./scripts/build_app.sh
 ```
 
-### Instalar em `~/Applications`
+### Install into `~/Applications`
 ```bash
 ./scripts/install.sh
 ```
 
-Depois de instalado, podes abrir diretamente a aplicação:
+Once installed, launch the application:
 ```bash
 open ~/Applications/SeeUsage.app
 ```
 
 ---
 
-## Privacidade e Segurança
+## CLI Usage
 
-- **Zero Storage de Credenciais**: A SeeUsage não lê, não persiste e não manipula tokens OAuth, senhas ou ficheiros de autenticação.
-- **Comunicação Segura**: Toda a recolha de dados é delegada diretamente aos binários oficiais instalados na máquina do utilizador.
-- **Sem Telemetria**: Sem analytics, rastreamento ou chamadas de rede não autorizadas.
-
----
-
-## Resolução de Problemas (Troubleshooting)
-
-- **"Codex CLI não encontrado"**:
-  Verifica se o `codex` está instalado (ex: `/opt/homebrew/bin/codex`). Podes definir um caminho customizado em **Definições → Executáveis**.
-- **"Antigravity CLI não encontrado"**:
-  Verifica se o `agy` está no teu PATH (ex: `~/.local/bin/agy`). Podes configurar o caminho em **Definições → Executáveis**.
-- **"Perfil Codex não autenticado"**:
-  Abre o terminal e corre `CODEX_HOME="/caminho/do/perfil" codex login` para autenticar o perfil em questão.
-- **"Inicia sessão no Antigravity CLI"**:
-  Corre `agy` no teu terminal para iniciar sessão.
+```bash
+seeusage                     # Full interactive dashboard table
+seeusage settings            # Open preferences window
+seeusage themes              # List available themes
+seeusage theme ocean         # Activate Ocean theme
+seeusage --mini --cached     # Lightweight one-liner for shell prompt (Starship/Zsh)
+seeusage --json              # Output metrics formatted as JSON
+seeusage --shell-init        # Generate shell wrapper functions for ~/.zshrc
+```
 
 ---
 
-## Limitações Conhecidas
+## Privacy & Security
 
-- **Antigravity Multi-Conta**: A versão atual monitoriza apenas a conta atualmente ativa no CLI `agy`.
-- **Read-Only**: A SeeUsage é puramente um monitor de utilização e não efetua troca de credenciais nem login/logout automático.
+- **Zero Credential Storage**: SeeUsage never reads, persists, or transmits OAuth tokens, passwords, or authentication keys.
+- **Secure Local Delegation**: All data retrieval delegates strictly to official CLI binaries installed on your system.
+- **No Telemetry**: No analytics, background trackers, or unauthorized network calls.
+
+---
+
+## Troubleshooting
+
+- **"Codex CLI not found"**:
+  Ensure `codex` is installed (e.g. `/opt/homebrew/bin/codex`). You can specify a custom binary path in **Settings → Executables**.
+- **"Antigravity CLI not found"**:
+  Ensure `agy` is in your PATH (e.g. `~/.local/bin/agy`). You can configure the path in **Settings → Executables**.
+- **"Codex profile not authenticated"**:
+  Open your terminal and run `CODEX_HOME="/path/to/profile" codex login` to log in.
+- **"Log in to Antigravity CLI"**:
+  Run `agy` in your terminal to authenticate.
