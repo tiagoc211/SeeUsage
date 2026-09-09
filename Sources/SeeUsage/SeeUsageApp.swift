@@ -1,6 +1,31 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Single Instance Enforcement
+final class SingleInstanceLock {
+    private static var lockFileDescriptor: Int32 = -1
+
+    @discardableResult
+    static func acquire() -> Bool {
+        let lockPath = ("~/.config/seeusage/app.lock" as NSString).expandingTildeInPath
+        let folder = (lockPath as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+
+        let fd = open(lockPath, O_CREAT | O_RDWR, 0o644)
+        guard fd >= 0 else { return false }
+
+        // Try non-blocking exclusive file lock
+        if flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            close(fd)
+            return false
+        }
+
+        // Keep file descriptor open for process lifetime
+        lockFileDescriptor = fd
+        return true
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -15,6 +40,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             await UsageStore.shared.refresh()
         }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard let button = statusItem?.button else { return true }
+        if !popover.isShown {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
+        }
+        return true
     }
 
     private func setupStatusItem() {
@@ -87,6 +121,19 @@ struct SeeUsageApp: App {
                 exit(0)
             }
             CFRunLoopRun()
+            exit(0)
+        }
+
+        // Single instance check for GUI mode
+        if !SingleInstanceLock.acquire() {
+            let bundleID = Bundle.main.bundleIdentifier ?? "app.seeusage.SeeUsage"
+            let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+            if #available(macOS 14.0, *) {
+                others.first?.activate()
+            } else {
+                others.first?.activate(options: .activateIgnoringOtherApps)
+            }
             exit(0)
         }
     }
