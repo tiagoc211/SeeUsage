@@ -3,8 +3,8 @@ import AppKit
 
 public struct UsagePopoverView: View {
     @Environment(\.openWindow) private var openWindow
-    var store = UsageStore.shared
-    var settings = SettingsStore.shared
+    @State private var store = UsageStore.shared
+    @State private var settings = SettingsStore.shared
 
     public init() {}
 
@@ -29,6 +29,11 @@ public struct UsagePopoverView: View {
         }
         .frame(width: 380)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            Task {
+                await store.refresh()
+            }
+        }
     }
 
     // MARK: - Header
@@ -182,6 +187,16 @@ public struct UsagePopoverView: View {
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 4)
                         }
+                    } else {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.6)
+                            Text("A consultar...")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(cardBackground)
                     }
                 }
             }
@@ -283,9 +298,13 @@ struct ProfileCardView: View {
                         .foregroundStyle(.orange)
                 }
             } else {
-                ProgressView()
-                    .scaleEffect(0.6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 8) {
+                    ProgressView().scaleEffect(0.6)
+                    Text("A consultar...")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(10)

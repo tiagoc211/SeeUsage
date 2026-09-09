@@ -58,7 +58,7 @@ struct SeeUsageApp: App {
             exit(0)
         }
 
-        Task {
+        Task { @MainActor in
             await UsageStore.shared.refresh()
         }
     }
