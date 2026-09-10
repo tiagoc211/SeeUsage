@@ -219,6 +219,13 @@ public struct UsagePopoverView: View {
                 }
 
                 T3ToolbarButton(
+                    icon: settings.hudEnabled ? "macwindow.on.rectangle" : "macwindow",
+                    helpText: settings.hudEnabled ? "Hide Desktop HUD" : "Show Desktop HUD"
+                ) {
+                    FloatingHUDManager.shared.toggle()
+                }
+
+                T3ToolbarButton(
                     icon: "gearshape",
                     helpText: "Settings"
                 ) {
@@ -633,6 +640,7 @@ private var t3CardBackground: some View {
 // MARK: - Settings Tab Enum
 enum SettingsTab: String, CaseIterable, Identifiable {
     case menubar = "menubar"
+    case hud = "hud"
     case appearance = "appearance"
     case notifications = "notifications"
     case profiles = "profiles"
@@ -645,6 +653,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .menubar: return "Menu Bar"
+        case .hud: return "Desktop HUD"
         case .appearance: return "Appearance"
         case .notifications: return "Notifications"
         case .profiles: return "Codex Profiles"
@@ -657,6 +666,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .menubar: return "display & launch"
+        case .hud: return "floating widget"
         case .appearance: return "themes & palette"
         case .notifications: return "alerts & thresholds"
         case .profiles: return "codex accounts"
@@ -669,6 +679,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .menubar: return "menubar.rectangle"
+        case .hud: return "macwindow.on.rectangle"
         case .appearance: return "paintbrush.fill"
         case .notifications: return "bell.badge.fill"
         case .profiles: return "person.crop.circle"
@@ -863,6 +874,16 @@ public struct SettingsView: View {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(Color.white.opacity(0.04))
                 )
+        case .hud:
+            Text(settings.hudEnabled ? (settings.hudCompactMode ? "pill" : "card") : "off")
+                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1.5)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(Color.white.opacity(0.04))
+                )
         case .appearance:
             Text(settings.currentTheme.category == "Core Themes" ? "core" : "ext")
                 .font(.system(size: 8.5, weight: .bold, design: .monospaced))
@@ -916,6 +937,20 @@ public struct SettingsView: View {
 
             // Header Actions
             switch selectedTab {
+            case .hud:
+                Button {
+                    FloatingHUDManager.shared.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: settings.hudEnabled ? "eye.slash.fill" : "eye.fill")
+                            .font(.system(size: 9))
+                        Text(settings.hudEnabled ? "hide hud" : "show hud")
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                    .foregroundStyle(settings.currentTheme.textSecondary)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             case .menubar:
                 if settings.menuBarDisplayMode != .percent || !settings.menuBarShowIcon {
                     Button {
@@ -1003,6 +1038,8 @@ public struct SettingsView: View {
         switch selectedTab {
         case .menubar:
             menuBarPane
+        case .hud:
+            hudPane
         case .appearance:
             appearancePane
         case .notifications:
@@ -1016,6 +1053,277 @@ public struct SettingsView: View {
         case .about:
             aboutPane
         }
+    }
+
+    // MARK: - Desktop Mini-HUD Pane
+    private var hudPane: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            // Section Header Description
+            VStack(alignment: .leading, spacing: 4) {
+                Text("// DESKTOP MINI-HUD WIDGET")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.accent)
+
+                Text("A semi-translucent, draggable desktop widget that monitors active AI quotas in real-time without clicking the menu bar.")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Master Switch Card
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(settings.hudEnabled ? settings.currentTheme.accent.opacity(0.15) : Color.white.opacity(0.04))
+                            .frame(width: 32, height: 32)
+                        Image(systemName: settings.hudEnabled ? "macwindow.on.rectangle" : "macwindow")
+                            .font(.system(size: 14))
+                            .foregroundStyle(settings.hudEnabled ? settings.currentTheme.accent : settings.currentTheme.textMuted)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show Floating Desktop HUD")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textPrimary)
+                        Text("Display floating quota widget on your screen (draggable from anywhere)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: Binding(
+                        get: { settings.hudEnabled },
+                        set: { newVal in
+                            if newVal {
+                                FloatingHUDManager.shared.show()
+                            } else {
+                                FloatingHUDManager.shared.hide()
+                            }
+                        }
+                    ))
+                    .toggleStyle(.switch)
+                    .scaleEffect(0.8)
+                }
+                .padding(14)
+            }
+            .background(t3CardBackground)
+
+            // Layout Mode Selector
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "rectangle.3.group")
+                        .font(.system(size: 11))
+                        .foregroundStyle(settings.currentTheme.accent)
+                    Text("WIDGET DISPLAY STYLE")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textMuted)
+                }
+
+                HStack(spacing: 12) {
+                    // Pill Mode Card
+                    Button {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            settings.hudCompactMode = true
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Image(systemName: "capsule.portrait")
+                                    .rotationEffect(.degrees(90))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(settings.hudCompactMode ? settings.currentTheme.accent : settings.currentTheme.textMuted)
+                                Text("Compact Pill")
+                                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(settings.hudCompactMode ? settings.currentTheme.textPrimary : settings.currentTheme.textSecondary)
+                                Spacer()
+                                if settings.hudCompactMode {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(settings.currentTheme.accent)
+                                }
+                            }
+
+                            Text("Ultra-minimal horizontal bar with quick metrics and micro gauge. Ideal beside IDE or terminal.")
+                                .font(.system(size: 9.5, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textMuted)
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, minHeight: 85, alignment: .topLeading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(settings.hudCompactMode ? settings.currentTheme.surfaceHover : Color.white.opacity(0.02))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(settings.hudCompactMode ? settings.currentTheme.accent : settings.currentTheme.border, lineWidth: 1.5)
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    // Detailed Card
+                    Button {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            settings.hudCompactMode = false
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Image(systemName: "square.text.square")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(!settings.hudCompactMode ? settings.currentTheme.cyan : settings.currentTheme.textMuted)
+                                Text("Detailed Card")
+                                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(!settings.hudCompactMode ? settings.currentTheme.textPrimary : settings.currentTheme.textSecondary)
+                                Spacer()
+                                if !settings.hudCompactMode {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(settings.currentTheme.cyan)
+                                }
+                            }
+
+                            Text("Rich floating card displaying full model lists, individual progress gauges, and countdown timers.")
+                                .font(.system(size: 9.5, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textMuted)
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, minHeight: 85, alignment: .topLeading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(!settings.hudCompactMode ? settings.currentTheme.surfaceHover : Color.white.opacity(0.02))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(!settings.hudCompactMode ? settings.currentTheme.cyan : settings.currentTheme.border, lineWidth: 1.5)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+            .background(t3CardBackground)
+
+            // Window Behavior & Opacity Card
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Image(systemName: "slider.horizontal.below.rectangle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(settings.currentTheme.textMuted)
+                    Text("BEHAVIOR & TRANSPARENCY")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textMuted)
+                }
+
+                // Always on top toggle
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Always on Top")
+                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textPrimary)
+                        Text("Keep the floating HUD above all application windows")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { settings.hudAlwaysOnTop },
+                        set: { newVal in
+                            settings.hudAlwaysOnTop = newVal
+                            FloatingHUDManager.shared.applySettings()
+                        }
+                    ))
+                    .toggleStyle(.switch)
+                    .scaleEffect(0.8)
+                }
+
+                Rectangle()
+                    .fill(settings.currentTheme.border)
+                    .frame(height: 1)
+
+                // Opacity slider
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Background Opacity:")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textSecondary)
+                        Text("\(Int(round(settings.hudOpacity * 100)))%")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.accent)
+                        Spacer()
+                    }
+
+                    HStack(spacing: 12) {
+                        Text("40%")
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+
+                        Slider(
+                            value: $settings.hudOpacity,
+                            in: 0.40...1.00,
+                            step: 0.05
+                        )
+                        .accentColor(settings.currentTheme.accent)
+
+                        Text("100%")
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                    }
+                }
+            }
+            .padding(14)
+            .background(t3CardBackground)
+
+            // CLI Quick Reference
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 10))
+                        .foregroundStyle(settings.currentTheme.green)
+                    Text("TERMINAL SHORTCUTS")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textMuted)
+                }
+
+                VStack(spacing: 6) {
+                    hudCLICommandRow(cmd: "seeusage hud", desc: "View HUD status & layout")
+                    hudCLICommandRow(cmd: "seeusage hud toggle", desc: "Toggle HUD visibility on/off")
+                    hudCLICommandRow(cmd: "seeusage hud compact", desc: "Switch to compact pill mode")
+                    hudCLICommandRow(cmd: "seeusage hud full", desc: "Switch to detailed card mode")
+                }
+            }
+            .padding(14)
+            .background(t3CardBackground)
+        }
+    }
+
+    private func hudCLICommandRow(cmd: String, desc: String) -> some View {
+        HStack(spacing: 8) {
+            Text("$")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(settings.currentTheme.green)
+
+            Text(cmd)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(settings.currentTheme.textPrimary)
+
+            Spacer()
+
+            Text(desc)
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(settings.currentTheme.textMuted)
+
+            T3CopyButton(command: cmd, label: "")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.white.opacity(0.02))
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 
     // MARK: - Menu Bar & Display Pane

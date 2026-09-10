@@ -122,6 +122,17 @@ public enum WatchDashboard {
                         noticeUntil = Date().addingTimeInterval(2.0)
                     }
 
+                case 104, 72: // 'h', 'H' (Toggle Desktop HUD)
+                    settings.hudEnabled.toggle()
+                    DistributedNotificationCenter.default().postNotificationName(
+                        NSNotification.Name("app.seeusage.toggleHUD"),
+                        object: nil,
+                        userInfo: nil,
+                        deliverImmediately: true
+                    )
+                    statusNotice = "Desktop HUD: \(settings.hudEnabled ? "Visible" : "Hidden")"
+                    noticeUntil = Date().addingTimeInterval(2.0)
+
                 default:
                     break
                 }
@@ -281,7 +292,7 @@ public enum WatchDashboard {
         lines.append("\(accentAnsi)├\(String(repeating: "─", count: width - 2))┤\(resetAnsi)")
 
         // 4. Hotkeys Bar
-        let hotkeys = " HOTKEYS: \(boldAnsi)[r]\(resetAnsi) Refresh  \(boldAnsi)[t]\(resetAnsi) Theme  \(boldAnsi)[m]\(resetAnsi) Menu Bar  \(boldAnsi)[q]\(resetAnsi) Quit"
+        let hotkeys = " HOTKEYS: \(boldAnsi)[r]\(resetAnsi) Refresh  \(boldAnsi)[t]\(resetAnsi) Theme  \(boldAnsi)[m]\(resetAnsi) Mode  \(boldAnsi)[h]\(resetAnsi) HUD  \(boldAnsi)[q]\(resetAnsi) Quit"
         lines.append(padBoxLine(hotkeys, visibleLength: stripAnsi(hotkeys).count, totalWidth: width, borderAnsi: accentAnsi))
 
         // Bottom Border Box

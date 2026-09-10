@@ -103,6 +103,58 @@ public final class SettingsStore {
         }
     }
 
+    public var hudEnabled: Bool {
+        didSet {
+            Self.defaults.set(hudEnabled, forKey: "hudEnabled")
+            UserDefaults.standard.set(hudEnabled, forKey: "hudEnabled")
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.hudSettingsChanged"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
+    }
+
+    public var hudAlwaysOnTop: Bool {
+        didSet {
+            Self.defaults.set(hudAlwaysOnTop, forKey: "hudAlwaysOnTop")
+            UserDefaults.standard.set(hudAlwaysOnTop, forKey: "hudAlwaysOnTop")
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.hudSettingsChanged"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
+    }
+
+    public var hudCompactMode: Bool {
+        didSet {
+            Self.defaults.set(hudCompactMode, forKey: "hudCompactMode")
+            UserDefaults.standard.set(hudCompactMode, forKey: "hudCompactMode")
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.hudSettingsChanged"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
+    }
+
+    public var hudOpacity: Double {
+        didSet {
+            Self.defaults.set(hudOpacity, forKey: "hudOpacity")
+            UserDefaults.standard.set(hudOpacity, forKey: "hudOpacity")
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.hudSettingsChanged"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
+    }
+
     public var refreshIntervalMinutes: Int {
         didSet {
             Self.defaults.set(refreshIntervalMinutes, forKey: "refreshIntervalMinutes")
@@ -175,6 +227,23 @@ public final class SettingsStore {
             ?? fallback.object(forKey: "notificationSoundEnabled") as? Bool
             ?? true
 
+        self.hudEnabled = prefs.object(forKey: "hudEnabled") as? Bool
+            ?? fallback.object(forKey: "hudEnabled") as? Bool
+            ?? false
+
+        self.hudAlwaysOnTop = prefs.object(forKey: "hudAlwaysOnTop") as? Bool
+            ?? fallback.object(forKey: "hudAlwaysOnTop") as? Bool
+            ?? true
+
+        self.hudCompactMode = prefs.object(forKey: "hudCompactMode") as? Bool
+            ?? fallback.object(forKey: "hudCompactMode") as? Bool
+            ?? false
+
+        let op = prefs.double(forKey: "hudOpacity") != 0
+            ? prefs.double(forKey: "hudOpacity")
+            : fallback.double(forKey: "hudOpacity")
+        self.hudOpacity = op > 0 ? op : 0.88
+
         let interval = prefs.integer(forKey: "refreshIntervalMinutes") != 0
             ? prefs.integer(forKey: "refreshIntervalMinutes")
             : fallback.integer(forKey: "refreshIntervalMinutes")
@@ -227,6 +296,31 @@ public final class SettingsStore {
             if let icon = Self.defaults.object(forKey: "menuBarShowIcon") as? Bool,
                icon != self.menuBarShowIcon {
                 self.menuBarShowIcon = icon
+            }
+        }
+
+        // Listen for live HUD settings updates across processes
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("app.seeusage.hudSettingsChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            if let enabled = Self.defaults.object(forKey: "hudEnabled") as? Bool,
+               enabled != self.hudEnabled {
+                self.hudEnabled = enabled
+            }
+            if let onTop = Self.defaults.object(forKey: "hudAlwaysOnTop") as? Bool,
+               onTop != self.hudAlwaysOnTop {
+                self.hudAlwaysOnTop = onTop
+            }
+            if let compact = Self.defaults.object(forKey: "hudCompactMode") as? Bool,
+               compact != self.hudCompactMode {
+                self.hudCompactMode = compact
+            }
+            if let opacity = Self.defaults.object(forKey: "hudOpacity") as? Double,
+               opacity != self.hudOpacity {
+                self.hudOpacity = opacity
             }
         }
     }

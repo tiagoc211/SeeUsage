@@ -90,6 +90,18 @@ public enum CLIHandler {
             }
         }
 
+        // Floating Mini-HUD Desktop Widget
+        if let hudIdx = args.firstIndex(of: "hud") ?? args.firstIndex(of: "--hud") {
+            if hudIdx + 1 < args.count {
+                let action = args[hudIdx + 1]
+                handleHUDCommand(action: action)
+                return true
+            } else {
+                printHUDStatus()
+                return true
+            }
+        }
+
         // Open Settings Window
         if args.contains("settings") || args.contains("--settings") || args.contains("config") {
             DistributedNotificationCenter.default().postNotificationName(
@@ -511,6 +523,111 @@ public enum CLIHandler {
         """)
     }
 
+    // MARK: - Floating Mini-HUD Controls
+    private static func printHUDStatus() {
+        let s = SettingsStore.shared
+        let enabledStr = s.hudEnabled ? green("VISIBLE") : dim("HIDDEN")
+        let modeStr = s.hudCompactMode ? cyan("COMPACT PILL") : bold("DETAILED CARD")
+        let pinStr = s.hudAlwaysOnTop ? green("ALWAYS ON TOP") : dim("DESKTOP LEVEL")
+        let opacityPct = Int(round(s.hudOpacity * 100))
+
+        print("""
+
+\(bold("// SEEUSAGE DESKTOP MINI-HUD"))
+
+  Widget Status:       \(enabledStr)
+  Display Mode:        \(modeStr)
+  Window Layer:        \(pinStr)
+  Opacity:             \(bold("\(opacityPct)%"))
+
+  Usage:
+    seeusage hud toggle         Toggle desktop HUD visibility on/off
+    seeusage hud on             Show floating desktop HUD
+    seeusage hud off            Hide floating desktop HUD
+    seeusage hud compact        Switch HUD to compact pill layout
+    seeusage hud full           Switch HUD to detailed card layout
+    seeusage hud pin            Pin HUD always on top
+    seeusage hud unpin          Set HUD to normal desktop window level
+    seeusage hud <40-100>       Set frosted background opacity percentage
+
+""")
+    }
+
+    private static func handleHUDCommand(action: String) {
+        let s = SettingsStore.shared
+        let dist = DistributedNotificationCenter.default()
+
+        switch action.lowercased() {
+        case "toggle":
+            s.hudEnabled.toggle()
+            dist.postNotificationName(
+                NSNotification.Name("app.seeusage.toggleHUD"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+            let status = s.hudEnabled ? green("Visible") : dim("Hidden")
+            print("\n" + green("✓") + " Floating Desktop HUD: \(status)\n")
+
+        case "on", "show", "open", "1":
+            s.hudEnabled = true
+            dist.postNotificationName(
+                NSNotification.Name("app.seeusage.showHUD"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+            ensureAppRunning()
+            print("\n" + green("✓") + " Floating Desktop HUD opened.\n")
+
+        case "off", "hide", "close", "0":
+            s.hudEnabled = false
+            dist.postNotificationName(
+                NSNotification.Name("app.seeusage.hideHUD"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+            print("\n" + green("✓") + " Floating Desktop HUD hidden.\n")
+
+        case "compact", "pill", "mini":
+            s.hudCompactMode = true
+            print("\n" + green("✓") + " Floating HUD switched to \(cyan("Compact Pill")) mode.\n")
+
+        case "full", "card", "expand", "detailed":
+            s.hudCompactMode = false
+            print("\n" + green("✓") + " Floating HUD switched to \(bold("Detailed Card")) mode.\n")
+
+        case "pin", "top":
+            s.hudAlwaysOnTop = true
+            print("\n" + green("✓") + " Floating HUD pinned \(green("Always on Top")).\n")
+
+        case "unpin", "normal", "desktop":
+            s.hudAlwaysOnTop = false
+            print("\n" + green("✓") + " Floating HUD set to \(dim("Normal Desktop Level")).\n")
+
+        default:
+            if let num = Double(action), num >= 10, num <= 100 {
+                let opacity = num / 100.0
+                s.hudOpacity = opacity
+                print("\n" + green("✓") + " Floating HUD opacity set to \(bold("\(Int(round(num)))%")).\n")
+            } else if let num = Double(action), num >= 0.1, num <= 1.0 {
+                s.hudOpacity = num
+                print("\n" + green("✓") + " Floating HUD opacity set to \(bold("\(Int(round(num * 100)))%")).\n")
+            } else {
+                print("\n" + red("Error:") + " Unknown HUD argument '\(action)'. Use 'toggle', 'on', 'off', 'compact', 'full', 'pin', 'unpin', or an opacity like '85'.\n")
+            }
+        }
+    }
+
+    private static func ensureAppRunning() {
+        let appPath = NSString(string: "~/Applications/SeeUsage.app").expandingTildeInPath
+        if FileManager.default.fileExists(atPath: appPath) {
+            let url = URL(fileURLWithPath: appPath)
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+        }
+    }
+
     // MARK: - Notification Controls
     private static func printNotifyStatus() {
         let s = SettingsStore.shared
@@ -574,6 +691,7 @@ public enum CLIHandler {
           seeusage themes
           seeusage theme <id>
           seeusage mode [id]
+          seeusage hud [toggle|on|off|compact|full]
           seeusage notify [test|on|off|<threshold>]
           seeusage --mini
           seeusage --export <profile>
@@ -589,6 +707,7 @@ public enum CLIHandler {
           themes, --themes    List all available terminal and developer themes
           theme <id>          Set active theme by ID (e.g. `seeusage theme ocean`)
           mode [id]           Set or list menu bar display style (percent, dual, gauge, iconOnly)
+          hud [action]        Control floating desktop HUD widget (toggle, compact, pin, etc.)
           notify [action]     Manage notification alerts or dispatch test notification
           --export <alias>    Output 'export CODEX_HOME=...' command (e.g. `seeusage --export cxp`)
           --shell-init [zsh]  Print shell functions and aliases to add to ~/.zshrc

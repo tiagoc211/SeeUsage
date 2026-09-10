@@ -39,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeOpenSettings()
         NotificationManager.shared.requestAuthorization()
 
+        if SettingsStore.shared.hudEnabled {
+            FloatingHUDManager.shared.show()
+        }
+
         Task { @MainActor in
             await UsageStore.shared.refresh()
         }

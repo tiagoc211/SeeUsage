@@ -16,6 +16,7 @@ SeeUsage monitors your remaining AI coding allowances across local CLI accounts 
 - **Antigravity quota monitoring**: Reads active `agy` rate limits across model families (Gemini, Claude, GPT).
 - **Customizable menu bar**: Choose between Lowest Quota (`⚡ 47%`), Dual Quotas (`cx: 92% · ag: 81%`), Mini Gauge, or Icon Only, with color-coded quota health.
 - **Interactive watch dashboard (`seeusage watch`)**: Real-time terminal TUI with second-by-second countdowns to quota resets and theme switching.
+- **Floating Mini-HUD (Desktop Widget)**: A draggable, semi-translucent floating widget with compact pill or detailed card layouts, pin always-on-top, opacity slider, and live reset countdowns.
 - **Native system notifications**: Custom alerts when any quota drops below a configurable threshold and when limits reset back to 100%.
 - **Fast shell prompt integration**: Instant cached one-liner (`seeusage --mini --cached`) for Starship, Zsh, and tmux prompts, plus JSON output (`--json`).
 - **Local and private**: Runs entirely on your machine. Never stores, reads, or transmits tokens or authentication secrets.
@@ -56,6 +57,8 @@ seeusage theme ocean         # Apply a terminal theme (e.g. emerald, ocean, toky
 seeusage mode dual           # Set menu bar style (percent, dual, gauge, iconOnly)
 seeusage notify test         # Send an instant test notification
 seeusage notify 15           # Set low-quota notification threshold to 15%
+seeusage hud toggle          # Toggle floating desktop HUD widget on/off
+seeusage hud compact         # Switch floating HUD to minimal compact pill layout
 seeusage --mini --cached     # Fast one-liner for shell prompts (reads local cache)
 seeusage --json              # Output quota data as JSON
 seeusage --export <profile>  # Print export CODEX_HOME=... command for shell switching
