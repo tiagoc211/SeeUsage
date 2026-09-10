@@ -13,7 +13,7 @@ SeeUsage monitors your remaining AI coding allowances across local CLI accounts 
 ## Features
 
 - **Codex multi-profile tracking**: Simultaneously queries quotas across `~/.codex` and `~/.codex-profiles/*` without switching active accounts or reading credentials.
-- **Antigravity quota monitoring**: Reads active `agy` rate limits across model families (Gemini, Claude, GPT).
+- **Antigravity quota monitoring**: Reads active `agy` rate limits across model families routed via Antigravity (Gemini, Claude & GPT models included in your Antigravity plan, distinct from direct Anthropic/Claude provider accounts).
 - **Customizable menu bar**: Choose between Lowest Quota (`⚡ 47%`), Dual Quotas (`cx: 92% · ag: 81%`), Mini Gauge, or Icon Only, with color-coded quota health.
 - **Interactive watch dashboard (`seeusage watch`)**: Real-time terminal TUI with second-by-second countdowns to quota resets and theme switching.
 - **Floating Mini-HUD (Desktop Widget)**: A draggable, semi-translucent floating widget with compact pill or detailed card layouts, pin always-on-top, opacity slider, and live reset countdowns.

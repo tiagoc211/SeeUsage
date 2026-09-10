@@ -242,7 +242,7 @@ public enum WatchDashboard {
         lines.append("\(accentAnsi)├\(String(repeating: "─", count: width - 2))┤\(resetAnsi)")
 
         // 2. Antigravity Section
-        let agyHeader = " \(boldAnsi)\(secAnsi)// ANTIGRAVITY (AGY)\(resetAnsi)"
+        let agyHeader = " \(boldAnsi)\(secAnsi)// ANTIGRAVITY (AGY ROUTED MODELS)\(resetAnsi)"
         lines.append(padBoxLine(agyHeader, visibleLength: stripAnsi(agyHeader).count, totalWidth: width, borderAnsi: accentAnsi))
 
         let agySnap = store.snapshots[SettingsStore.antigravityProfileID]
@@ -258,7 +258,7 @@ public enum WatchDashboard {
             }
 
             for scope in sortedScopes {
-                let sTag = scope.lowercased().contains("gemini") ? "gemini" : (scope.lowercased().contains("claude") ? "claude & gpt" : scope.lowercased())
+                let sTag = scope.lowercased().contains("gemini") ? "gemini" : (scope.lowercased().contains("claude") ? "claude & gpt (agy)" : scope.lowercased())
                 let sLine = "   \(boldAnsi)\(accentAnsi)$\(resetAnsi) \(boldAnsi)agy\(resetAnsi) [\(dimAnsi)\(sTag)\(resetAnsi)]"
                 lines.append(padBoxLine(sLine, visibleLength: stripAnsi(sLine).count, totalWidth: width, borderAnsi: accentAnsi))
 

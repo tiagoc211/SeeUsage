@@ -219,17 +219,27 @@ public struct FloatingHUDView: View {
                 }
             }
 
-            // Antigravity Section
+            // Antigravity Section (Routed Models)
             if let agySnap = store.snapshots[SettingsStore.antigravityProfileID], !agySnap.windows.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("ANTIGRAVITY")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        Text("ANTIGRAVITY (ROUTED MODELS)")
+                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
                             .foregroundStyle(settings.currentTheme.cyan)
                         Spacer()
                     }
 
-                    profileHUDCard(name: "agy", windows: agySnap.windows)
+                    let grouped = Dictionary(grouping: agySnap.windows) { $0.scope ?? "Antigravity" }
+                    let sortedKeys = grouped.keys.sorted { s1, s2 in
+                        if s1.contains("Gemini") { return true }
+                        if s2.contains("Gemini") { return false }
+                        return s1 < s2
+                    }
+
+                    ForEach(sortedKeys, id: \.self) { scope in
+                        let tag = scope.contains("Claude") ? "agy: claude & gpt" : (scope.contains("Gemini") ? "agy: gemini" : "agy: \(scope.lowercased())")
+                        profileHUDCard(name: tag, windows: grouped[scope] ?? [])
+                    }
                 }
             }
 

@@ -324,7 +324,7 @@ public enum CLIHandler {
         }
 
         // 2. ANTIGRAVITY (AGY)
-        print(bold(purple("// ANTIGRAVITY (AGY)")))
+        print(bold(purple("// ANTIGRAVITY (AGY ROUTED MODELS)")))
         let agySnap = store.snapshots[SettingsStore.antigravityProfileID]
         if let err = agySnap?.error, agySnap?.windows.isEmpty ?? true {
             print("  " + amber("⚠ \(err)"))
@@ -737,7 +737,7 @@ public enum CLIHandler {
 
     private static func scopeBadge(scope: String) -> String {
         if scope.contains("Gemini") { return purple("[gemini]") }
-        if scope.contains("Claude") { return amber("[claude]") }
-        return green("[gpt]")
+        if scope.contains("Claude") { return amber("[claude & gpt (agy)]") }
+        return green("[\(scope.lowercased())]")
     }
 }

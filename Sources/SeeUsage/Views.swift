@@ -279,7 +279,7 @@ public struct UsagePopoverView: View {
 
                 // ANTIGRAVITY SECTION
                 VStack(alignment: .leading, spacing: 6) {
-                    sectionLabel(title: "ANTIGRAVITY", tag: "AGY")
+                    sectionLabel(title: "ANTIGRAVITY MODELS", tag: "AGY")
 
                     let agySnapshot = store.snapshots[SettingsStore.antigravityProfileID]
                     if let err = agySnapshot?.error, agySnapshot?.windows.isEmpty ?? true {
@@ -517,8 +517,8 @@ struct AntigravityT3CardView: View {
 
     private var modelBadge: (label: String, color: Color) {
         if scope.contains("Gemini") { return ("gemini", T3Theme.purple) }
-        if scope.contains("Claude") { return ("claude", T3Theme.amber) }
-        return ("gpt", T3Theme.green)
+        if scope.contains("Claude") { return ("claude & gpt", T3Theme.amber) }
+        return (scope.lowercased(), T3Theme.green)
     }
 
     var body: some View {
@@ -528,7 +528,7 @@ struct AntigravityT3CardView: View {
                 HStack(spacing: 3) {
                     Text("$")
                         .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(T3Theme.purple)
+                        .foregroundStyle(T3Theme.cyan)
                     Text("agy")
                         .font(.system(size: 11.5, weight: .bold, design: .monospaced))
                         .foregroundStyle(T3Theme.textPrimary)
@@ -543,6 +543,12 @@ struct AntigravityT3CardView: View {
                 Text("[\(modelBadge.label)]")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundStyle(modelBadge.color)
+
+                if scope.contains("Claude") {
+                    Text("(routed via agy)")
+                        .font(.system(size: 8.5, design: .monospaced))
+                        .foregroundStyle(T3Theme.textMuted.opacity(0.7))
+                }
 
                 Spacer()
 
