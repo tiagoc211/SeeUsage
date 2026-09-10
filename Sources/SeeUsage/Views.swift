@@ -647,6 +647,7 @@ private var t3CardBackground: some View {
 enum SettingsTab: String, CaseIterable, Identifiable {
     case menubar = "menubar"
     case hud = "hud"
+    case analytics = "analytics"
     case appearance = "appearance"
     case notifications = "notifications"
     case profiles = "profiles"
@@ -660,6 +661,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .menubar: return "Menu Bar"
         case .hud: return "Desktop HUD"
+        case .analytics: return "Analytics"
         case .appearance: return "Appearance"
         case .notifications: return "Notifications"
         case .profiles: return "Codex Profiles"
@@ -673,6 +675,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .menubar: return "display & launch"
         case .hud: return "floating widget"
+        case .analytics: return "trends & charts"
         case .appearance: return "themes & palette"
         case .notifications: return "alerts & thresholds"
         case .profiles: return "codex accounts"
@@ -686,6 +689,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .menubar: return "menubar.rectangle"
         case .hud: return "macwindow.on.rectangle"
+        case .analytics: return "chart.xyaxis.line"
         case .appearance: return "paintbrush.fill"
         case .notifications: return "bell.badge.fill"
         case .profiles: return "person.crop.circle"
@@ -890,6 +894,16 @@ public struct SettingsView: View {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(Color.white.opacity(0.04))
                 )
+        case .analytics:
+            Text("7d")
+                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1.5)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(Color.white.opacity(0.04))
+                )
         case .appearance:
             Text(settings.currentTheme.category == "Core Themes" ? "core" : "ext")
                 .font(.system(size: 8.5, weight: .bold, design: .monospaced))
@@ -1046,6 +1060,8 @@ public struct SettingsView: View {
             menuBarPane
         case .hud:
             hudPane
+        case .analytics:
+            AnalyticsView()
         case .appearance:
             appearancePane
         case .notifications:

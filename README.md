@@ -17,6 +17,7 @@ SeeUsage monitors your remaining AI coding allowances across local CLI accounts 
 - **Customizable menu bar**: Choose between Lowest Quota (`⚡ 47%`), Dual Quotas (`cx: 92% · ag: 81%`), Mini Gauge, or Icon Only, with color-coded quota health.
 - **Interactive watch dashboard (`seeusage watch`)**: Real-time terminal TUI with second-by-second countdowns to quota resets and theme switching.
 - **Floating Mini-HUD (Desktop Widget)**: A draggable, semi-translucent floating widget with compact pill or detailed card layouts, pin always-on-top, opacity slider, and live reset countdowns.
+- **Quota Analytics & Usage History**: Lightweight recording in `~/.config/seeusage/history.json` and native SwiftUI `Charts` in Settings showing peak burn hours of the day (00:00–23:00), profile comparisons (Personal vs Work vs Antigravity), and 7-day consumption trends.
 - **Native system notifications**: Custom alerts when any quota drops below a configurable threshold and when limits reset back to 100%.
 - **Fast shell prompt integration**: Instant cached one-liner (`seeusage --mini --cached`) for Starship, Zsh, and tmux prompts, plus JSON output (`--json`).
 - **Local and private**: Runs entirely on your machine. Never stores, reads, or transmits tokens or authentication secrets.
@@ -59,6 +60,9 @@ seeusage notify test         # Send an instant test notification
 seeusage notify 15           # Set low-quota notification threshold to 15%
 seeusage hud toggle          # Toggle floating desktop HUD widget on/off
 seeusage hud compact         # Switch floating HUD to minimal compact pill layout
+seeusage analytics           # View 7-day consumption summary, peak hours, and profile share
+seeusage analytics csv       # Export recorded quota history to CSV
+seeusage analytics json      # Export recorded quota history to JSON
 seeusage --mini --cached     # Fast one-liner for shell prompts (reads local cache)
 seeusage --json              # Output quota data as JSON
 seeusage --export <profile>  # Print export CODEX_HOME=... command for shell switching

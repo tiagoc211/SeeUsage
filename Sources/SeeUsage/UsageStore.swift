@@ -197,5 +197,6 @@ public final class UsageStore {
         }
 
         NotificationManager.shared.evaluateSnapshots(oldSnapshots: oldSnapshots, newSnapshots: self.snapshots)
+        AnalyticsManager.shared.recordSnapshots(self.snapshots)
     }
 }

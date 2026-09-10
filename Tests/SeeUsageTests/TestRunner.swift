@@ -72,6 +72,29 @@ final class TestSuiteRunner {
             }
         }
 
+        runAsync("FloatingHUDTests.testHUDSettingsPersistence") {
+            await MainActor.run {
+                FloatingHUDTests().testHUDSettingsPersistence()
+            }
+        }
+        runAsync("FloatingHUDTests.testCLIHUDCommands") {
+            await FloatingHUDTests().testCLIHUDCommands()
+        }
+
+        runAsync("AnalyticsTests.testAnalyticsDataStructures") {
+            await MainActor.run {
+                AnalyticsTests().testAnalyticsDataStructures()
+            }
+        }
+        runAsync("AnalyticsTests.testAnalyticsManagerComputations") {
+            await MainActor.run {
+                AnalyticsTests().testAnalyticsManagerComputations()
+            }
+        }
+        runAsync("AnalyticsTests.testCLIAnalyticsCommands") {
+            await AnalyticsTests().testCLIAnalyticsCommands()
+        }
+
         print("\nTest Suite 'SeeUsageTests.xctest' passed at \(Date()).")
         print("\t Executed \(totalTests) tests, with \(failedTests) failures (0 unexpected)")
         print("Test Suite 'All tests' passed at \(Date()).")
