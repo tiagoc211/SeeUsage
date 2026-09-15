@@ -88,6 +88,28 @@ public enum WatchDashboard {
                 case 113, 81, 3, 27: // 'q', 'Q', Ctrl+C (0x03), ESC (0x1B)
                     shouldExit = true
 
+                case 99, 67: // 'c', 'C' (Consume Banked Reset)
+                    let banked = AnalyticsManager.shared.getAvailableBankedCredits(
+                        from: store.snapshots,
+                        profiles: settings.codexProfiles
+                    )
+                    if let first = banked.first {
+                        isRefreshing = true
+                        let pName = first.profile.name
+                        let planName = (store.snapshots[first.profile.id]?.plan ?? "Plus").capitalized
+                        statusNotice = "Activating banked reset for \(pName) [\(planName)]..."
+                        noticeUntil = Date().addingTimeInterval(3.0)
+                        Task {
+                            let res = await store.consumeBankedReset(for: first.profile, creditId: first.credit.id)
+                            isRefreshing = false
+                            statusNotice = res.success ? "⚡ Reset activated! Quota restored to 100%" : "✗ \(res.message)"
+                            noticeUntil = Date().addingTimeInterval(3.5)
+                        }
+                    } else {
+                        statusNotice = "No banked resets available to redeem."
+                        noticeUntil = Date().addingTimeInterval(2.0)
+                    }
+
                 case 114, 82: // 'r', 'R' (Refresh)
                     if !isRefreshing {
                         isRefreshing = true
@@ -193,7 +215,8 @@ public enum WatchDashboard {
         let updateTimeStr = store.lastUpdated.map { df.string(from: $0) } ?? "--:--:--"
         let statusStr = isRefreshing ? "\(boldAnsi)\u{001B}[33m⟳ REFRESHING...\(resetAnsi)" : "\(dimAnsi)idle\(resetAnsi)"
 
-        let infoContent = " Theme: \(boldAnsi)\(theme.name)\(resetAnsi) │ Mode: \(dimAnsi)\(settings.menuBarDisplayMode.title)\(resetAnsi) │ Synced: \(dimAnsi)\(updateTimeStr)\(resetAnsi) │ Status: \(statusStr)"
+        let mbMode = settings.menuBarDisplayMode.badgeLabel
+        let infoContent = " Theme: \(boldAnsi)\(theme.name)\(resetAnsi) │ Mode: \(dimAnsi)\(mbMode)\(resetAnsi) │ Synced: \(dimAnsi)\(updateTimeStr)\(resetAnsi) │ Status: \(statusStr)"
         lines.append(padBoxLine(infoContent, visibleLength: stripAnsi(infoContent).count, totalWidth: width, borderAnsi: accentAnsi))
 
         if !notice.isEmpty {
@@ -231,6 +254,11 @@ public enum WatchDashboard {
                         let labelPadded = window.label.padding(toLength: 8, withPad: " ", startingAt: 0)
                         let wLine = "     \(dimAnsi)\(labelPadded)\(resetAnsi) \(boldAnsi)\(colorAnsi)\(pctStr)\(resetAnsi) \(colorAnsi)\(bar)\(resetAnsi)  \(dimAnsi)Reset in\(resetAnsi) \(boldAnsi)\(countdown)\(resetAnsi)"
                         lines.append(padBoxLine(wLine, visibleLength: stripAnsi(wLine).count, totalWidth: width, borderAnsi: accentAnsi))
+                    }
+                    if let available = snap?.availableResetCredits, available > 0 {
+                        let planStr = (snap?.plan ?? "Plus").capitalized
+                        let bLine = "     \u{001B}[38;2;250;158;46m⚡ \(available) banked reset [\(planStr)]\u{001B}[0m \(dimAnsi)• press 'c' to redeem\(resetAnsi)"
+                        lines.append(padBoxLine(bLine, visibleLength: stripAnsi(bLine).count, totalWidth: width, borderAnsi: accentAnsi))
                     }
                 } else if snap?.error == nil {
                     let loadingLine = "     \(dimAnsi)Waiting for quota metrics...\(resetAnsi)"
@@ -292,7 +320,7 @@ public enum WatchDashboard {
         lines.append("\(accentAnsi)├\(String(repeating: "─", count: width - 2))┤\(resetAnsi)")
 
         // 4. Hotkeys Bar
-        let hotkeys = " HOTKEYS: \(boldAnsi)[r]\(resetAnsi) Refresh  \(boldAnsi)[t]\(resetAnsi) Theme  \(boldAnsi)[m]\(resetAnsi) Mode  \(boldAnsi)[h]\(resetAnsi) HUD  \(boldAnsi)[q]\(resetAnsi) Quit"
+        let hotkeys = " HOTKEYS: \(boldAnsi)[r]\(resetAnsi) Sync  \(boldAnsi)[c]\(resetAnsi) Redeem  \(boldAnsi)[t]\(resetAnsi) Theme  \(boldAnsi)[m]\(resetAnsi) Mode  \(boldAnsi)[q]\(resetAnsi) Quit"
         lines.append(padBoxLine(hotkeys, visibleLength: stripAnsi(hotkeys).count, totalWidth: width, borderAnsi: accentAnsi))
 
         // Bottom Border Box
@@ -304,7 +332,12 @@ public enum WatchDashboard {
 
     // MARK: - Helpers
     private static func padBoxLine(_ content: String, visibleLength: Int, totalWidth: Int, borderAnsi: String) -> String {
-        let padSpaces = max(0, totalWidth - 2 - visibleLength)
+        let maxInner = max(0, totalWidth - 2)
+        if visibleLength > maxInner {
+            // Hard clamp visible content to prevent terminal wrap
+            return "\(borderAnsi)│\(content)\u{001B}[0m\(borderAnsi)│\(contentAnsiReset)"
+        }
+        let padSpaces = max(0, maxInner - visibleLength)
         return "\(borderAnsi)│\(content)\u{001B}[0m\(String(repeating: " ", count: padSpaces))\(borderAnsi)│\(contentAnsiReset)"
     }
 

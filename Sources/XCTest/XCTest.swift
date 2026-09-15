@@ -85,6 +85,36 @@ public func XCTAssertTrue(_ a: @autoclosure () throws -> Bool, _ message: @autoc
     }
 }
 
+public func XCTAssertFalse(_ a: @autoclosure () throws -> Bool, _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {
+    do {
+        if try a() {
+            let desc = "[\(file):\(line)] Assertion failed: expected false. \(message())"
+            print(desc)
+            fatalError(desc)
+        }
+    } catch {
+        let desc = "[\(file):\(line)] Assertion threw error: \(error). \(message())"
+        print(desc)
+        fatalError(desc)
+    }
+}
+
+public func XCTAssertGreaterThan<T: Comparable>(_ a: @autoclosure () throws -> T, _ b: @autoclosure () throws -> T, _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) {
+    do {
+        let valA = try a()
+        let valB = try b()
+        if valA <= valB {
+            let desc = "[\(file):\(line)] Assertion failed: expected \(valA) > \(valB). \(message())"
+            print(desc)
+            fatalError(desc)
+        }
+    } catch {
+        let desc = "[\(file):\(line)] Assertion threw error: \(error). \(message())"
+        print(desc)
+        fatalError(desc)
+    }
+}
+
 public func XCTFail(_ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
     let desc = "[\(file):\(line)] Failure: \(message)"
     print(desc)

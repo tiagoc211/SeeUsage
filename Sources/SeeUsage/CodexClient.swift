@@ -111,10 +111,57 @@ public enum CodexClient {
             // Sort windows by duration (e.g. 5h before 7 dias)
             windows.sort { ($0.durationMinutes ?? 0) < ($1.durationMinutes ?? 0) }
 
+            // Extract rateLimitResetCredits (Banked Resets)
+            var availableCreditsCount = 0
+            var bankedCredits: [BankedResetCredit] = []
+
+            let resetCreditsObj = (result["rateLimitResetCredits"] as? [String: Any])
+                ?? (limits["rateLimitResetCredits"] as? [String: Any])
+
+            if let rco = resetCreditsObj {
+                if let countNum = (rco["availableCount"] as? NSNumber)?.intValue {
+                    availableCreditsCount = countNum
+                } else if let countInt = rco["availableCount"] as? Int {
+                    availableCreditsCount = countInt
+                }
+
+                if let rawList = rco["credits"] as? [[String: Any]] {
+                    for item in rawList {
+                        guard let creditId = item["id"] as? String else { continue }
+                        let resetType = item["resetType"] as? String
+                        let status = item["status"] as? String ?? "available"
+                        let title = item["title"] as? String
+                        let desc = item["description"] as? String
+
+                        var grantedDate: Date?
+                        if let gSec = (item["grantedAt"] as? NSNumber)?.doubleValue, gSec > 0 {
+                            grantedDate = Date(timeIntervalSince1970: gSec)
+                        }
+
+                        var expiresDate: Date?
+                        if let eSec = (item["expiresAt"] as? NSNumber)?.doubleValue, eSec > 0 {
+                            expiresDate = Date(timeIntervalSince1970: eSec)
+                        }
+
+                        bankedCredits.append(BankedResetCredit(
+                            id: creditId,
+                            resetType: resetType,
+                            status: status,
+                            title: title,
+                            description: desc,
+                            grantedAt: grantedDate,
+                            expiresAt: expiresDate
+                        ))
+                    }
+                }
+            }
+
             return UsageSnapshot(
                 profileID: profileID,
                 plan: plan,
                 windows: windows,
+                availableResetCredits: availableCreditsCount,
+                bankedCredits: bankedCredits,
                 fetchedAt: Date(),
                 error: nil
             )
@@ -146,6 +193,72 @@ public enum CodexClient {
             } else {
                 return "\(minutes) min"
             }
+        }
+    }
+
+    // MARK: - Consume Banked Reset Credit
+    public static func consumeResetCredit(
+        profile: UsageProfile,
+        creditId: String,
+        executable: String,
+        timeout: TimeInterval = 15
+    ) async -> (success: Bool, message: String) {
+        guard let homePath = profile.homePath, !homePath.isEmpty else {
+            return (false, "CODEX_HOME path not configured.")
+        }
+
+        let idempotencyKey = UUID().uuidString
+        let requests = [
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"SeeUsage","version":"1.0.0"}}}"#,
+            #"{"jsonrpc":"2.0","method":"initialized","params":{}}"#,
+            #"{"jsonrpc":"2.0","id":3,"method":"account/rateLimitResetCredit/consume","params":{"creditId":"\#(creditId)","idempotencyKey":"\#(idempotencyKey)"}}"#
+        ].joined(separator: "\n") + "\n"
+
+        do {
+            let result = try await ProcessRunner.run(
+                executable: executable,
+                arguments: ["app-server", "--stdio"],
+                environment: ["CODEX_HOME": (homePath as NSString).expandingTildeInPath],
+                input: Data(requests.utf8),
+                timeout: timeout,
+                completionMarker: #""id":3"#
+            )
+
+            let text = String(decoding: result.standardOutput, as: UTF8.self)
+            let lines = text.components(separatedBy: .newlines)
+
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard trimmed.hasPrefix("{"),
+                      let lineData = trimmed.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                      (json["id"] as? Int) == 3
+                else { continue }
+
+                if let errorObj = json["error"] as? [String: Any] {
+                    let msg = errorObj["message"] as? String ?? "Failed to consume banked reset."
+                    return (false, msg)
+                }
+
+                if let res = json["result"] as? [String: Any] {
+                    let outcome = res["outcome"] as? String ?? "reset"
+                    if outcome == "reset" || outcome == "success" {
+                        return (true, "Banked reset successfully activated! Your quotas are fully restored.")
+                    } else if outcome == "nothingToReset" {
+                        return (false, "Your quotas are already at 100%. Nothing to reset.")
+                    } else if outcome == "alreadyRedeemed" {
+                        return (false, "This reset credit was already redeemed.")
+                    } else if outcome == "noCredit" {
+                        return (false, "No available reset credit found on this account.")
+                    } else {
+                        return (true, "Banked reset redeemed (outcome: \(outcome)).")
+                    }
+                }
+            }
+
+            return (false, "No confirmation received from Codex server.")
+        } catch {
+            return (false, error.localizedDescription)
         }
     }
 }

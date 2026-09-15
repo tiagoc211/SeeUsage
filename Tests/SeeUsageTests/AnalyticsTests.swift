@@ -80,4 +80,130 @@ final class AnalyticsTests: XCTestCase {
         let handledHistoryAlias = await CLIHandler.handle(arguments: ["seeusage", "history"])
         XCTAssertTrue(handledHistoryAlias)
     }
+
+    func testResetDataModels() {
+        let now = Date()
+        let pID = UUID()
+        let nextReset = now.addingTimeInterval(18000)
+
+        let event = ResetEvent(
+            timestamp: now,
+            profileID: pID,
+            profileName: "Pessoal",
+            service: "Codex",
+            scope: nil,
+            windowLabel: "5 h",
+            durationMinutes: 300,
+            quotaBefore: 12.0,
+            quotaAfter: 100.0,
+            quotaRestored: 88.0,
+            nextResetAt: nextReset
+        )
+
+        XCTAssertEqual(event.profileName, "Pessoal")
+        XCTAssertEqual(event.service, "Codex")
+        XCTAssertEqual(event.windowLabel, "5 h")
+        XCTAssertEqual(event.quotaBefore, 12.0)
+        XCTAssertEqual(event.quotaAfter, 100.0)
+        XCTAssertEqual(event.quotaRestored, 88.0)
+        XCTAssertEqual(event.nextResetAt, nextReset)
+
+        let upcoming = UpcomingResetInfo(
+            profileID: pID,
+            profileName: "Trabalho",
+            service: "Codex",
+            scope: nil,
+            windowLabel: "7 days",
+            durationMinutes: 10080,
+            currentRemainingPercent: 65.0,
+            resetsAt: now.addingTimeInterval(3600)
+        )
+
+        XCTAssertEqual(upcoming.profileName, "Trabalho")
+        XCTAssertEqual(upcoming.windowLabel, "7 days")
+        XCTAssertEqual(upcoming.currentRemainingPercent, 65.0)
+        XCTAssertFalse(upcoming.isExpired)
+        XCTAssertTrue(upcoming.secondsUntilReset > 0)
+    }
+
+    func testResetDetectionAndPersistence() {
+        let manager = AnalyticsManager.shared
+        manager.clearResets()
+        XCTAssertEqual(manager.resetEvents.count, 0)
+
+        // Seed demo reset events
+        manager.seedDemoResetDataIfEmpty()
+        XCTAssertGreaterThan(manager.resetEvents.count, 0)
+
+        let events = manager.getResetEvents(limit: 10)
+        XCTAssertFalse(events.isEmpty)
+
+        // CSV export
+        let csv = manager.exportResetsCSV()
+        XCTAssertTrue(csv.contains("Timestamp,Profile,Service,Scope,Window,QuotaBefore,QuotaAfter,QuotaRestored,NextResetAt"))
+        XCTAssertTrue(csv.contains("Codex"))
+
+        // JSON export
+        let json = manager.exportResetsJSON()
+        XCTAssertTrue(json.contains("quotaRestored"))
+
+        // Clear resets
+        manager.clearResets()
+        XCTAssertEqual(manager.resetEvents.count, 0)
+    }
+
+    func testUpcomingResetsComputation() {
+        let manager = AnalyticsManager.shared
+        let pID = UUID()
+        let now = Date()
+
+        let win5h = UsageWindow(
+            id: "5h",
+            label: "5 h",
+            remainingPercent: 80.0,
+            durationMinutes: 300,
+            resetsAt: now.addingTimeInterval(7200),
+            scope: nil
+        )
+
+        let win7d = UsageWindow(
+            id: "7d",
+            label: "7 days",
+            remainingPercent: 60.0,
+            durationMinutes: 10080,
+            resetsAt: now.addingTimeInterval(86400),
+            scope: nil
+        )
+
+        let snap = UsageSnapshot(
+            profileID: pID,
+            plan: "Pro",
+            windows: [win7d, win5h]
+        )
+
+        let upcoming = manager.computeUpcomingResets(from: [pID: snap])
+        XCTAssertEqual(upcoming.count, 2)
+        // Earliest resetsAt should come first
+        XCTAssertEqual(upcoming.first?.windowLabel, "5 h")
+        XCTAssertEqual(upcoming.last?.windowLabel, "7 days")
+    }
+
+    func testCLIResetsCommands() async {
+        let handledResets = await CLIHandler.handle(arguments: ["seeusage", "resets"])
+        XCTAssertTrue(handledResets)
+
+        let handledSeed = await CLIHandler.handle(arguments: ["seeusage", "resets", "seed"])
+        XCTAssertTrue(handledSeed)
+        XCTAssertGreaterThan(AnalyticsManager.shared.resetEvents.count, 0)
+
+        let handledCSV = await CLIHandler.handle(arguments: ["seeusage", "resets", "csv"])
+        XCTAssertTrue(handledCSV)
+
+        let handledJSON = await CLIHandler.handle(arguments: ["seeusage", "resets", "json"])
+        XCTAssertTrue(handledJSON)
+
+        let handledClear = await CLIHandler.handle(arguments: ["seeusage", "resets", "clear"])
+        XCTAssertTrue(handledClear)
+        XCTAssertEqual(AnalyticsManager.shared.resetEvents.count, 0)
+    }
 }

@@ -78,12 +78,19 @@ public final class AnalyticsManager {
     public static let shared = AnalyticsManager()
 
     public private(set) var snapshots: [QuotaHistorySnapshot] = []
+    public private(set) var resetEvents: [ResetEvent] = []
     public private(set) var lastRecordedAt: Date?
 
     public static var historyFileURL: URL {
         let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/seeusage", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.appendingPathComponent("history.json")
+    }
+
+    public static var resetsFileURL: URL {
+        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/seeusage", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent("resets.json")
     }
 
     private init() {
@@ -99,6 +106,11 @@ public final class AnalyticsManager {
            let list = try? decoder.decode([QuotaHistorySnapshot].self, from: data) {
             self.snapshots = list
             self.lastRecordedAt = list.last?.timestamp
+        }
+
+        if let data = try? Data(contentsOf: Self.resetsFileURL),
+           let events = try? decoder.decode([ResetEvent].self, from: data) {
+            self.resetEvents = events
         }
     }
 
@@ -118,15 +130,34 @@ public final class AnalyticsManager {
         if let data = try? encoder.encode(trimmed) {
             try? data.write(to: Self.historyFileURL, options: .atomic)
         }
+
+        // Keep at most 1,000 reset events
+        let trimmedResets: [ResetEvent]
+        if resetEvents.count > 1000 {
+            trimmedResets = Array(resetEvents.prefix(1000))
+        } else {
+            trimmedResets = resetEvents
+        }
+
+        if let data = try? encoder.encode(trimmedResets) {
+            try? data.write(to: Self.resetsFileURL, options: .atomic)
+        }
     }
 
     public func clearHistory() {
         snapshots.removeAll()
+        resetEvents.removeAll()
         lastRecordedAt = nil
         try? FileManager.default.removeItem(at: Self.historyFileURL)
+        try? FileManager.default.removeItem(at: Self.resetsFileURL)
     }
 
-    // MARK: - Recording Snapshots
+    public func clearResets() {
+        resetEvents.removeAll()
+        try? FileManager.default.removeItem(at: Self.resetsFileURL)
+    }
+
+    // MARK: - Recording Snapshots & Detecting Resets
     public func recordSnapshots(_ usageSnapshots: [UUID: UsageSnapshot]) {
         let settings = SettingsStore.shared
         var records: [QuotaSampleRecord] = []
@@ -164,10 +195,72 @@ public final class AnalyticsManager {
 
         guard !records.isEmpty else { return }
 
-        // Deduplicate against very recent recording (under 45 seconds) unless quota changed
+        // Detect Reset Events by comparing against the most recent snapshot
+        if let lastSnapshot = snapshots.last {
+            var lastRecordsMap: [String: QuotaSampleRecord] = [:]
+            for r in lastSnapshot.records {
+                let key = "\(r.profileID.uuidString):\(r.scope ?? ""):\(r.windowLabel)"
+                lastRecordsMap[key] = r
+            }
+
+            for newRecord in records {
+                let key = "\(newRecord.profileID.uuidString):\(newRecord.scope ?? ""):\(newRecord.windowLabel)"
+                guard let oldRecord = lastRecordsMap[key] else { continue }
+
+                var isReset = false
+
+                // Condition 1: Old reset deadline has passed or new reset deadline has advanced
+                if let oldReset = oldRecord.resetsAt {
+                    let passedOldReset = oldReset <= now
+                    let cycleAdvanced = newRecord.resetsAt != nil && newRecord.resetsAt!.timeIntervalSince(oldReset) > 60.0
+                    if (passedOldReset || cycleAdvanced) && (newRecord.remainingPercent > oldRecord.remainingPercent || newRecord.remainingPercent >= 95.0) {
+                        isReset = true
+                    }
+                }
+
+                // Condition 2: Quota increased significantly (at least +10% restoration)
+                if newRecord.remainingPercent >= oldRecord.remainingPercent + 10.0 {
+                    isReset = true
+                }
+
+                if isReset {
+                    let win = usageSnapshots[newRecord.profileID]?.windows.first(where: {
+                        $0.label == newRecord.windowLabel && $0.scope == newRecord.scope
+                    })
+                    let duration = win?.durationMinutes
+
+                    // Avoid duplicate logging within 2 minutes for the same window
+                    let isDuplicate = resetEvents.contains { past in
+                        past.profileID == newRecord.profileID &&
+                        past.windowLabel == newRecord.windowLabel &&
+                        past.scope == newRecord.scope &&
+                        abs(past.timestamp.timeIntervalSince(now)) < 120.0
+                    }
+
+                    if !isDuplicate {
+                        let event = ResetEvent(
+                            id: UUID(),
+                            timestamp: now,
+                            profileID: newRecord.profileID,
+                            profileName: newRecord.profileName,
+                            service: newRecord.service,
+                            scope: newRecord.scope,
+                            windowLabel: newRecord.windowLabel,
+                            durationMinutes: duration,
+                            quotaBefore: oldRecord.remainingPercent,
+                            quotaAfter: newRecord.remainingPercent,
+                            quotaRestored: max(0.0, newRecord.remainingPercent - oldRecord.remainingPercent),
+                            nextResetAt: newRecord.resetsAt
+                        )
+                        resetEvents.insert(event, at: 0)
+                    }
+                }
+            }
+        }
+
+        // Deduplicate snapshots against very recent recording (under 45 seconds) unless quota changed
         if let last = snapshots.last,
            now.timeIntervalSince(last.timestamp) < 45.0 {
-            // Check if values actually changed
             let lastRecordsMap = Dictionary(uniqueKeysWithValues: last.records.map { ($0.id, $0.remainingPercent) })
             let hasChange = records.contains { record in
                 if let oldPct = lastRecordsMap[record.id] {
@@ -182,6 +275,80 @@ public final class AnalyticsManager {
         snapshots.append(newSnapshot)
         lastRecordedAt = now
         saveHistory()
+    }
+
+    // MARK: - Upcoming & Historical Resets Queries
+
+    /// Gathers all currently active windows that have a scheduled resetsAt date
+    public func computeUpcomingResets(from usageSnapshots: [UUID: UsageSnapshot]? = nil) -> [UpcomingResetInfo] {
+        let snapshotsToUse = usageSnapshots ?? UsageStore.shared.snapshots
+        let settings = SettingsStore.shared
+        var results: [UpcomingResetInfo] = []
+
+        for (profileID, snapshot) in snapshotsToUse {
+            let profileName: String
+            let service: String
+
+            if profileID == SettingsStore.antigravityProfileID {
+                profileName = "Antigravity"
+                service = "Antigravity"
+            } else if let p = settings.codexProfiles.first(where: { $0.id == profileID }) {
+                profileName = p.name
+                service = "Codex"
+            } else {
+                profileName = "Codex"
+                service = "Codex"
+            }
+
+            for window in snapshot.windows {
+                guard let resetDate = window.resetsAt else { continue }
+                results.append(UpcomingResetInfo(
+                    profileID: profileID,
+                    profileName: profileName,
+                    service: service,
+                    scope: window.scope,
+                    windowLabel: window.label,
+                    durationMinutes: window.durationMinutes,
+                    currentRemainingPercent: window.remainingPercent,
+                    resetsAt: resetDate
+                ))
+            }
+        }
+
+        // If active snapshots were empty (e.g. fresh CLI launch), fallback to latest history records
+        if results.isEmpty, let lastSnap = snapshots.last {
+            for record in lastSnap.records {
+                guard let resetDate = record.resetsAt, resetDate > Date() else { continue }
+                results.append(UpcomingResetInfo(
+                    profileID: record.profileID,
+                    profileName: record.profileName,
+                    service: record.service,
+                    scope: record.scope,
+                    windowLabel: record.windowLabel,
+                    durationMinutes: nil,
+                    currentRemainingPercent: record.remainingPercent,
+                    resetsAt: resetDate
+                ))
+            }
+        }
+
+        return results.sorted { $0.resetsAt < $1.resetsAt }
+    }
+
+    /// Retrieve reset history filtered by optional criteria
+    public func getResetEvents(
+        limit: Int = 100,
+        service: String? = nil,
+        profileID: UUID? = nil
+    ) -> [ResetEvent] {
+        var list = resetEvents
+        if let s = service {
+            list = list.filter { $0.service.lowercased() == s.lowercased() }
+        }
+        if let pid = profileID {
+            list = list.filter { $0.profileID == pid }
+        }
+        return Array(list.prefix(limit))
     }
 
     // MARK: - Seeding Realistic Demo Data
@@ -249,6 +416,121 @@ public final class AnalyticsManager {
 
         self.snapshots = seeded
         self.lastRecordedAt = seeded.last?.timestamp
+
+        seedDemoResetDataIfEmpty()
+        saveHistory()
+    }
+
+    public func seedDemoResetDataIfEmpty() {
+        guard resetEvents.isEmpty else { return }
+
+        let now = Date()
+        let personalID = SettingsStore.shared.codexProfiles.first?.id ?? UUID()
+        let workID = SettingsStore.shared.codexProfiles.dropFirst().first?.id ?? UUID()
+        let agyID = SettingsStore.antigravityProfileID
+
+        let sampleEvents: [ResetEvent] = [
+            ResetEvent(
+                id: UUID(),
+                timestamp: now.addingTimeInterval(-3600 * 3.5),
+                profileID: personalID,
+                profileName: "Pessoal",
+                service: "Codex",
+                scope: nil,
+                windowLabel: "5 h",
+                durationMinutes: 300,
+                quotaBefore: 18.0,
+                quotaAfter: 100.0,
+                quotaRestored: 82.0,
+                nextResetAt: now.addingTimeInterval(3600 * 1.5)
+            ),
+            ResetEvent(
+                id: UUID(),
+                timestamp: now.addingTimeInterval(-3600 * 8.5),
+                profileID: personalID,
+                profileName: "Pessoal",
+                service: "Codex",
+                scope: nil,
+                windowLabel: "5 h",
+                durationMinutes: 300,
+                quotaBefore: 24.0,
+                quotaAfter: 100.0,
+                quotaRestored: 76.0,
+                nextResetAt: now.addingTimeInterval(-3600 * 3.5)
+            ),
+            ResetEvent(
+                id: UUID(),
+                timestamp: now.addingTimeInterval(-3600 * 12.0),
+                profileID: workID,
+                profileName: "Trabalho",
+                service: "Codex",
+                scope: nil,
+                windowLabel: "5 h",
+                durationMinutes: 300,
+                quotaBefore: 31.0,
+                quotaAfter: 100.0,
+                quotaRestored: 69.0,
+                nextResetAt: now.addingTimeInterval(-3600 * 7.0)
+            ),
+            ResetEvent(
+                id: UUID(),
+                timestamp: now.addingTimeInterval(-3600 * 19.0),
+                profileID: agyID,
+                profileName: "Antigravity",
+                service: "Antigravity",
+                scope: "Gemini",
+                windowLabel: "5 h",
+                durationMinutes: 300,
+                quotaBefore: 42.0,
+                quotaAfter: 100.0,
+                quotaRestored: 58.0,
+                nextResetAt: now.addingTimeInterval(-3600 * 14.0)
+            ),
+            ResetEvent(
+                id: UUID(),
+                timestamp: now.addingTimeInterval(-86400 * 2.1),
+                profileID: personalID,
+                profileName: "Pessoal",
+                service: "Codex",
+                scope: nil,
+                windowLabel: "7 days",
+                durationMinutes: 10080,
+                quotaBefore: 48.0,
+                quotaAfter: 100.0,
+                quotaRestored: 52.0,
+                nextResetAt: now.addingTimeInterval(86400 * 4.9)
+            ),
+            ResetEvent(
+                id: UUID(),
+                timestamp: now.addingTimeInterval(-86400 * 3.2),
+                profileID: workID,
+                profileName: "Trabalho",
+                service: "Codex",
+                scope: nil,
+                windowLabel: "5 h",
+                durationMinutes: 300,
+                quotaBefore: 15.0,
+                quotaAfter: 100.0,
+                quotaRestored: 85.0,
+                nextResetAt: now.addingTimeInterval(-86400 * 3.0)
+            ),
+            ResetEvent(
+                id: UUID(),
+                timestamp: now.addingTimeInterval(-86400 * 4.5),
+                profileID: personalID,
+                profileName: "Pessoal",
+                service: "Codex",
+                scope: nil,
+                windowLabel: "5 h",
+                durationMinutes: 300,
+                quotaBefore: 8.0,
+                quotaAfter: 100.0,
+                quotaRestored: 92.0,
+                nextResetAt: now.addingTimeInterval(-86400 * 4.3)
+            )
+        ]
+
+        self.resetEvents = sampleEvents
         saveHistory()
     }
 
@@ -456,5 +738,50 @@ public final class AnalyticsManager {
             return str
         }
         return "[]"
+    }
+
+    public func exportResetsCSV() -> String {
+        var csv = "Timestamp,Profile,Service,Scope,Window,QuotaBefore,QuotaAfter,QuotaRestored,NextResetAt\n"
+        let dateFormatter = ISO8601DateFormatter()
+
+        for event in resetEvents {
+            let timeStr = dateFormatter.string(from: event.timestamp)
+            let nextStr = event.nextResetAt.map { dateFormatter.string(from: $0) } ?? ""
+            let scopeStr = event.scope ?? ""
+            csv += "\"\(timeStr)\",\"\(event.profileName)\",\"\(event.service)\",\"\(scopeStr)\",\"\(event.windowLabel)\",\(event.quotaBefore),\(event.quotaAfter),\(event.quotaRestored),\"\(nextStr)\"\n"
+        }
+        return csv
+    }
+
+    public func exportResetsJSON() -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(resetEvents),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return "[]"
+    }
+
+    /// Extract all available banked reset credits across profiles
+    public func getAvailableBankedCredits(
+        from snapshots: [UUID: UsageSnapshot],
+        profiles: [UsageProfile]
+    ) -> [(profile: UsageProfile, credit: BankedResetCredit)] {
+        var results: [(profile: UsageProfile, credit: BankedResetCredit)] = []
+        for profile in profiles {
+            guard let snap = snapshots[profile.id] else { continue }
+            for credit in snap.bankedCredits where credit.status.lowercased() == "available" {
+                results.append((profile: profile, credit: credit))
+            }
+        }
+        return results
+    }
+
+    /// Explicitly record a reset event (e.g. from banked reset consumption)
+    public func recordResetEvent(_ event: ResetEvent) {
+        resetEvents.insert(event, at: 0)
+        saveHistory()
     }
 }

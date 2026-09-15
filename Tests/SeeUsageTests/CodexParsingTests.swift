@@ -98,4 +98,42 @@ final class CodexParsingTests: XCTestCase {
         XCTAssertEqual(CodexClient.formatDuration(minutes: 20160), "14 days")
         XCTAssertEqual(CodexClient.formatDuration(minutes: 45), "45 min")
     }
+    func testCodexBankedResetCreditsParsing() {
+        let json = """
+        {
+          "id": 2,
+          "result": {
+            "rateLimits": {
+              "planType": "plus",
+              "primary": { "usedPercent": 50, "windowDurationMins": 300 }
+            },
+            "rateLimitResetCredits": {
+              "availableCount": 1,
+              "credits": [
+                {
+                  "id": "RateLimitResetCredit_sample123",
+                  "resetType": "codexRateLimits",
+                  "status": "available",
+                  "grantedAt": 1788559218,
+                  "expiresAt": 1791151218,
+                  "title": "Full reset (Weekly + 5 hr)",
+                  "description": "Thanks for using Codex! You have been granted one free rate limit reset."
+                }
+              ]
+            }
+          }
+        }
+        """
+        let snapshot = CodexClient.parse(output: Data(json.utf8), profileID: profileID)
+
+        XCTAssertNil(snapshot.error)
+        XCTAssertEqual(snapshot.availableResetCredits, 1)
+        XCTAssertEqual(snapshot.bankedCredits.count, 1)
+
+        let credit = snapshot.bankedCredits[0]
+        XCTAssertEqual(credit.id, "RateLimitResetCredit_sample123")
+        XCTAssertEqual(credit.status, "available")
+        XCTAssertEqual(credit.title, "Full reset (Weekly + 5 hr)")
+        XCTAssertNotNil(credit.expiresAt)
+    }
 }

@@ -109,11 +109,26 @@ public enum CLIHandler {
             return true
         }
 
+        // Quota Resets & Banked Reset Credits
+        if let resetIdx = args.firstIndex(of: "resets") ?? args.firstIndex(of: "--resets") ?? args.firstIndex(of: "reset-history") ?? args.firstIndex(of: "reset") {
+            await handleResetsCommand(args: args, resetIdx: resetIdx)
+            return true
+        }
+
+        if args.contains("consume-reset") || args.contains("activate-reset") {
+            let idx = args.firstIndex(of: "consume-reset") ?? args.firstIndex(of: "activate-reset")!
+            let target = (idx + 1 < args.count && !args[idx + 1].hasPrefix("-")) ? args[idx + 1] : nil
+            let autoConfirm = args.contains("--yes") || args.contains("-y")
+            await handleConsumeBankedReset(target: target, autoConfirm: autoConfirm)
+            return true
+        }
+
         // Open Settings Window
-        if args.contains("settings") || args.contains("--settings") || args.contains("config") {
+        if let sIdx = args.firstIndex(of: "settings") ?? args.firstIndex(of: "--settings") ?? args.firstIndex(of: "config") {
+            let subArg = (sIdx + 1 < args.count) ? args[sIdx + 1].lowercased() : nil
             DistributedNotificationCenter.default().postNotificationName(
                 NSNotification.Name("app.seeusage.openSettings"),
-                object: nil,
+                object: subArg,
                 userInfo: nil,
                 deliverImmediately: true
             )
@@ -322,6 +337,10 @@ public enum CLIHandler {
                 } else if let windows = snap?.windows, !windows.isEmpty {
                     for w in windows {
                         printWindowRow(label: w.label, percent: w.remainingPercent, reset: w.resetsAt)
+                    }
+                    if let available = snap?.availableResetCredits, available > 0 {
+                        let planName = (snap?.plan ?? "Plus").capitalized
+                        print("    " + amber("⚡ \(available) banked reset [\(planName)]") + dim(" • run: ") + bold(green("seeusage resets consume \(alias)")))
                     }
                 } else {
                     print("    " + dim("connecting..."))
@@ -734,7 +753,6 @@ public enum CLIHandler {
         if daily.isEmpty {
             print("  " + dim("No consumption detected yet."))
         } else {
-            // Group by day
             var dayTotals: [String: (label: String, val: Double)] = [:]
             for item in daily {
                 let cur = dayTotals[item.dayKey] ?? (label: item.shortDateLabel, val: 0.0)
@@ -776,6 +794,328 @@ public enum CLIHandler {
         print("")
     }
 
+    // MARK: - Quota Resets Command
+    private static func handleResetsCommand(args: [String], resetIdx: Int) async {
+        let analytics = AnalyticsManager.shared
+        analytics.loadHistory()
+
+        let subArg = (resetIdx + 1 < args.count) ? args[resetIdx + 1].lowercased() : nil
+
+        if subArg == "consume" || subArg == "activate" || subArg == "--consume" {
+            let target = (resetIdx + 2 < args.count && !args[resetIdx + 2].hasPrefix("-")) ? args[resetIdx + 2] : nil
+            let autoConfirm = args.contains("--yes") || args.contains("-y")
+            await handleConsumeBankedReset(target: target, autoConfirm: autoConfirm)
+            return
+        }
+
+        if subArg == "clear" || subArg == "--clear" {
+            analytics.clearResets()
+            print("\n" + green("✓") + " Quota reset history cleared (~/.config/seeusage/resets.json deleted).\n")
+            return
+        }
+
+        if subArg == "seed" || subArg == "--seed" {
+            analytics.seedDemoResetDataIfEmpty()
+            print("\n" + green("✓") + " Populated demo reset history for Codex & Antigravity.\n")
+            return
+        }
+
+        if subArg == "gui" || subArg == "--gui" {
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.openSettings"),
+                object: "resets",
+                userInfo: nil,
+                deliverImmediately: true
+            )
+            let appPath = NSString(string: "~/Applications/SeeUsage.app").expandingTildeInPath
+            if FileManager.default.fileExists(atPath: appPath) {
+                let url = URL(fileURLWithPath: appPath)
+                _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+            }
+            print("\n" + green("✓") + " Resets & Cycles window opened.\n")
+            return
+        }
+
+        if subArg == "csv" || subArg == "--csv" {
+            print(analytics.exportResetsCSV())
+            return
+        }
+
+        // Ensure we have active snapshots to calculate upcoming resets
+        let store = UsageStore.shared
+        store.loadCache()
+        if store.snapshots.isEmpty {
+            await store.refresh()
+        }
+
+        let upcoming = analytics.computeUpcomingResets(from: store.snapshots)
+        let history = analytics.getResetEvents(limit: 20)
+
+        if subArg == "json" || subArg == "--json" || args.contains("--json") {
+            let iso = ISO8601DateFormatter()
+            let upcomingPayload = upcoming.map { u in
+                [
+                    "profileName": u.profileName,
+                    "service": u.service,
+                    "scope": u.scope as Any,
+                    "windowLabel": u.windowLabel,
+                    "remainingPercent": u.currentRemainingPercent as Any,
+                    "resetsAt": iso.string(from: u.resetsAt),
+                    "secondsUntilReset": max(0, Int(round(u.secondsUntilReset))),
+                    "resetHuman": Formatters.resetDescription(for: u.resetsAt)
+                ]
+            }
+            let historyPayload = history.map { h in
+                [
+                    "timestamp": iso.string(from: h.timestamp),
+                    "profileName": h.profileName,
+                    "service": h.service,
+                    "scope": h.scope as Any,
+                    "windowLabel": h.windowLabel,
+                    "quotaBefore": h.quotaBefore,
+                    "quotaAfter": h.quotaAfter,
+                    "quotaRestored": h.quotaRestored,
+                    "nextResetAt": h.nextResetAt.map { iso.string(from: $0) } as Any
+                ]
+            }
+            let bankedPayload = analytics.getAvailableBankedCredits(
+                from: store.snapshots,
+                profiles: SettingsStore.shared.codexProfiles
+            ).map { b in
+                [
+                    "profileName": b.profile.name,
+                    "creditId": b.credit.id,
+                    "title": b.credit.title as Any,
+                    "status": b.credit.status,
+                    "expiresAt": b.credit.expiresAt.map { iso.string(from: $0) } as Any
+                ]
+            }
+            let full: [String: Any] = [
+                "upcomingResets": upcomingPayload,
+                "bankedResets": bankedPayload,
+                "resetHistory": historyPayload
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: full, options: [.prettyPrinted, .sortedKeys]),
+               let str = String(data: data, encoding: .utf8) {
+                print(str)
+            }
+            return
+        }
+
+        // Default: Formatted Terminal Dashboard for Resets
+        printResetsDashboard(upcoming: upcoming, history: history)
+    }
+
+    // MARK: - Consume Banked Reset
+    private static func handleConsumeBankedReset(target: String?, autoConfirm: Bool) async {
+        let store = UsageStore.shared
+        let settings = SettingsStore.shared
+        store.loadCache()
+        if store.snapshots.isEmpty {
+            await store.refresh()
+        }
+
+        let bankedCredits = AnalyticsManager.shared.getAvailableBankedCredits(
+            from: store.snapshots,
+            profiles: settings.codexProfiles
+        )
+
+        if bankedCredits.isEmpty {
+            print("\n" + red("✗") + " No banked resets available on any configured Codex profile.\n")
+            return
+        }
+
+        // Match requested profile
+        let matchedItem: (profile: UsageProfile, credit: BankedResetCredit)?
+        if let t = target?.lowercased() {
+            matchedItem = bankedCredits.first { item in
+                let lowName = item.profile.name.lowercased()
+                if lowName == t || lowName.contains(t) { return true }
+                if t == "cxp" && lowName.contains("pessoal") { return true }
+                if t == "cxt" && lowName.contains("trabalho") { return true }
+                return false
+            }
+        } else if bankedCredits.count == 1 {
+            matchedItem = bankedCredits.first
+        } else {
+            print("\n" + amber("Multiple banked resets available. Please specify profile:"))
+            for b in bankedCredits {
+                let alias = b.profile.name.lowercased().contains("pessoal") ? "cxp" : "cxt"
+                print("  seeusage resets consume \(alias)  (\(b.profile.name))")
+            }
+            print("")
+            return
+        }
+
+        guard let targetItem = matchedItem else {
+            print("\n" + red("✗") + " No available banked reset found matching \'\(target ?? "")\'.\n")
+            return
+        }
+
+        let prof = targetItem.profile
+        let credit = targetItem.credit
+        let title = credit.title ?? "Full reset (Weekly + 5 hr)"
+
+        print("\n" + bold(amber("⚡ BANKED RESET ACTIVATION")))
+        print("  Profile: " + bold(prof.name))
+        print("  Credit:  " + bold(title))
+        if let exp = credit.expiresAt {
+            let df = DateFormatter()
+            df.dateFormat = "MMM d, HH:mm"
+            print("  Expires: " + dim(df.string(from: exp)) + " " + dim("(\(Formatters.resetDescription(for: exp).lowercased()))"))
+        }
+        print("\n" + bold("This will immediately consume 1 credit and restore your usage quotas to 100%."))
+
+        if !autoConfirm {
+            print("Proceed with activation? [y/N]: ", terminator: "")
+            fflush(stdout)
+            guard let line = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  line == "y" || line == "yes" else {
+                print(dim("\nActivation canceled.\n"))
+                return
+            }
+        }
+
+        print(dim("\nConnecting to Codex app-server to consume credit..."))
+        let res = await store.consumeBankedReset(for: prof, creditId: credit.id)
+
+        if res.success {
+            print("\n" + bold(green("✓ \(res.message)")))
+            printTable(store: store, settings: settings)
+        } else {
+            print("\n" + bold(red("✗ \(res.message)\n")))
+        }
+    }
+
+    private static func printResetsDashboard(upcoming: [UpcomingResetInfo], history: [ResetEvent]) {
+        print("\n" + bold(cyan("// ACTIVE & UPCOMING QUOTA RESETS")))
+        print("")
+
+        // Banked Resets Section (On-Demand Refills)
+        let settings = SettingsStore.shared
+        let store = UsageStore.shared
+        let banked = AnalyticsManager.shared.getAvailableBankedCredits(
+            from: store.snapshots,
+            profiles: settings.codexProfiles
+        )
+
+        if !banked.isEmpty {
+            print("  " + bold(amber("⚡ BANKED RESETS (ON-DEMAND REFILLS / ATIVAÇÃO MANUAL)")))
+            print("  " + dim(String(repeating: "─", count: 74)))
+            for b in banked {
+                let alias = b.profile.name.lowercased().contains("pessoal") ? "cxp" :
+                           (b.profile.name.lowercased().contains("trabalho") ? "cxt" : b.profile.name.lowercased())
+                let title = b.credit.title ?? "Full reset"
+                let planName = (store.snapshots[b.profile.id]?.plan ?? "Plus").capitalized
+
+                let expStr: String
+                if let exp = b.credit.expiresAt {
+                    let df = DateFormatter()
+                    df.dateFormat = "MMM d"
+                    expStr = "expires \(df.string(from: exp))"
+                } else {
+                    expStr = "no expiration"
+                }
+                print("  " + amber("⚡ [codex] \(b.profile.name)") + " " + cyan("[\(planName)]") + " " + bold(title) + " " + dim("• \(expStr)"))
+                print("    " + dim("Activate with: ") + bold(green("seeusage resets consume \(alias)")))
+            }
+            print("")
+        }
+
+        // Filter out past resets older than 5 minutes
+        let activeUpcoming = upcoming.filter { $0.resetsAt > Date().addingTimeInterval(-300) }
+
+        if activeUpcoming.isEmpty {
+            print("  " + dim("No active renewal schedules detected (run `seeusage -r` to sync live rate limits)."))
+        } else {
+            let hService = "SERVICE / PROFILE".padding(toLength: 20, withPad: " ", startingAt: 0)
+            let hWindow = "WINDOW".padding(toLength: 8, withPad: " ", startingAt: 0)
+            let hQuota = "REMAINING".padding(toLength: 10, withPad: " ", startingAt: 0)
+            let hResetAt = "SCHEDULED RESET".padding(toLength: 16, withPad: " ", startingAt: 0)
+            let hCountdown = "COUNTDOWN"
+            print("  " + bold(dim("\(hService) \(hWindow) \(hQuota) \(hResetAt) \(hCountdown)")))
+            print("  " + dim(String(repeating: "─", count: 74)))
+
+            for u in activeUpcoming {
+                let tagStr = u.service == "Antigravity" ? "[agy]" : "[cx]"
+                let namePart: String
+                if u.service == "Antigravity" {
+                    if let sc = u.scope {
+                        namePart = sc.lowercased().contains("gemini") ? "Gemini" : "Claude/GPT"
+                    } else {
+                        namePart = "Antigravity"
+                    }
+                } else {
+                    namePart = u.profileName
+                }
+                let rawFull = "\(tagStr) \(namePart)".padding(toLength: 20, withPad: " ", startingAt: 0)
+                let sCol = u.service == "Antigravity"
+                    ? rawFull.replacingOccurrences(of: "[agy]", with: purple("[agy]"))
+                    : rawFull.replacingOccurrences(of: "[cx]", with: green("[cx]"))
+
+                let wCol = u.windowLabel.padding(toLength: 8, withPad: " ", startingAt: 0)
+
+                let pctStr = u.currentRemainingPercent.map { String(format: "%3.0f%%", $0) } ?? " --%"
+                let paddedPct = pctStr.padding(toLength: 10, withPad: " ", startingAt: 0)
+                let colorFn = quotaColor(for: u.currentRemainingPercent)
+                let qCol = bold(colorFn(paddedPct))
+
+                let dateFmt = DateFormatter()
+                dateFmt.dateFormat = "MMM d, HH:mm"
+                let dateStr = dateFmt.string(from: u.resetsAt).padding(toLength: 16, withPad: " ", startingAt: 0)
+
+                let countdown = bold(cyan(WatchDashboard.countdownString(until: u.resetsAt)))
+
+                print("  \(sCol) \(dim(wCol)) \(qCol) \(dim(dateStr)) \(countdown)")
+            }
+        }
+
+        print("")
+        print(bold(cyan("// RECENT RESET AUDIT LOG (HISTÓRICO DE RESETS)")))
+        print("")
+
+        if history.isEmpty {
+            print("  " + dim("No reset events logged yet."))
+            print("  " + dim("SeeUsage detects resets automatically when quota renews or scheduled cycles elapse."))
+            print("  " + dim("Run `seeusage resets seed` to populate realistic sample reset history."))
+        } else {
+            let hDate = "EVENT TIME".padding(toLength: 17, withPad: " ", startingAt: 0)
+            let hProf = "PROFILE".padding(toLength: 16, withPad: " ", startingAt: 0)
+            let hWin = "WINDOW".padding(toLength: 8, withPad: " ", startingAt: 0)
+            let hJump = "QUOTA RESTORATION".padding(toLength: 20, withPad: " ", startingAt: 0)
+            let hStatus = "STATUS"
+            print("  " + bold(dim("\(hDate) \(hProf) \(hWin) \(hJump) \(hStatus)")))
+            print("  " + dim(String(repeating: "─", count: 74)))
+
+            let df = DateFormatter()
+            df.dateFormat = "MMM d, HH:mm"
+
+            for h in history {
+                let timeStr = df.string(from: h.timestamp).padding(toLength: 17, withPad: " ", startingAt: 0)
+                let tagStr = h.service == "Antigravity" ? "[agy]" : "[cx]"
+                let rawProf = "\(tagStr) \(h.profileName)".padding(toLength: 16, withPad: " ", startingAt: 0)
+                let profStr = h.service == "Antigravity"
+                    ? rawProf.replacingOccurrences(of: "[agy]", with: purple("[agy]"))
+                    : rawProf.replacingOccurrences(of: "[cx]", with: green("[cx]"))
+
+                let winStr = h.windowLabel.padding(toLength: 8, withPad: " ", startingAt: 0)
+                let jumpStr = String(format: "%3.0f%% ➔ %3.0f%% (+%.0f%%)", h.quotaBefore, h.quotaAfter, h.quotaRestored)
+                    .padding(toLength: 20, withPad: " ", startingAt: 0)
+                let statusStr = green("✓ Restored")
+
+                print("  \(dim(timeStr)) \(profStr) \(dim(winStr)) \(bold(cyan(jumpStr))) \(statusStr)")
+            }
+        }
+
+        print("")
+        print(dim("  Commands:"))
+        print(dim("    seeusage resets json         Export upcoming and history as JSON"))
+        print(dim("    seeusage resets csv          Export reset history as CSV"))
+        print(dim("    seeusage resets clear        Clear recorded reset history"))
+        print(dim("    seeusage resets seed         Seed realistic demo reset events"))
+        print("")
+    }
+
     // MARK: - Help Manual
     private static func printHelp() {
         print("""
@@ -784,6 +1124,7 @@ public enum CLIHandler {
         \(bold("USAGE:"))
           seeusage [options]
           seeusage watch
+          seeusage resets [csv|json|clear|seed]
           seeusage settings
           seeusage themes
           seeusage theme <id>
@@ -797,6 +1138,7 @@ public enum CLIHandler {
 
         \(bold("OPTIONS:"))
           watch, -w           Live interactive terminal dashboard with countdown to the second
+          resets              Display active renewal schedules & logged reset history (Codex & AGY)
           -m, --mini          Compact one-line output (ideal for Starship / Zsh RPROMPT / tmux)
           -c, --cached        Read instantaneous cached quota from ~/.config/seeusage/cache.json
           -r, --refresh       Force a live refresh against codex app-server and agy CLI
@@ -816,6 +1158,8 @@ public enum CLIHandler {
         \(bold("EXAMPLES:"))
           $ seeusage                     # Full interactive dashboard table
           $ seeusage watch               # Real-time interactive TUI with live second countdown
+          $ seeusage resets              # Active countdowns & historical quota reset log
+          $ seeusage resets json         # Structured JSON of upcoming renewals and past resets
           $ seeusage settings            # Open settings window with theme picker
           $ seeusage themes              # Show all themes (Emerald, Ocean, Grove, etc.)
           $ seeusage theme grove         # Activate Grove theme

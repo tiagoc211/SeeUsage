@@ -199,4 +199,42 @@ public final class UsageStore {
         NotificationManager.shared.evaluateSnapshots(oldSnapshots: oldSnapshots, newSnapshots: self.snapshots)
         AnalyticsManager.shared.recordSnapshots(self.snapshots)
     }
+
+    // MARK: - Banked Reset Consumption
+    public func consumeBankedReset(for profile: UsageProfile, creditId: String) async -> (success: Bool, message: String) {
+        let exe = SettingsStore.shared.codexExecutableOverride.isEmpty
+            ? (ProcessRunner.resolveExecutable(named: "codex") ?? "codex")
+            : SettingsStore.shared.codexExecutableOverride
+
+        let res = await CodexClient.consumeResetCredit(
+            profile: profile,
+            creditId: creditId,
+            executable: exe
+        )
+
+        if res.success {
+            let primaryWindow = snapshots[profile.id]?.windows.first
+            let quotaBefore = primaryWindow?.remainingPercent ?? 0.0
+
+            AnalyticsManager.shared.recordResetEvent(
+                ResetEvent(
+                    id: UUID(),
+                    timestamp: Date(),
+                    profileID: profile.id,
+                    profileName: profile.name,
+                    service: "Codex",
+                    scope: nil,
+                    windowLabel: "Banked Reset",
+                    durationMinutes: nil,
+                    quotaBefore: quotaBefore,
+                    quotaAfter: 100.0
+                )
+            )
+
+            // Trigger full refresh to update rate limits and credit counts
+            await refresh()
+        }
+
+        return res
+    }
 }

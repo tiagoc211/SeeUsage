@@ -94,6 +94,24 @@ final class TestSuiteRunner {
         runAsync("AnalyticsTests.testCLIAnalyticsCommands") {
             await AnalyticsTests().testCLIAnalyticsCommands()
         }
+        runAsync("AnalyticsTests.testResetDataModels") {
+            await MainActor.run {
+                AnalyticsTests().testResetDataModels()
+            }
+        }
+        runAsync("AnalyticsTests.testResetDetectionAndPersistence") {
+            await MainActor.run {
+                AnalyticsTests().testResetDetectionAndPersistence()
+            }
+        }
+        runAsync("AnalyticsTests.testUpcomingResetsComputation") {
+            await MainActor.run {
+                AnalyticsTests().testUpcomingResetsComputation()
+            }
+        }
+        runAsync("AnalyticsTests.testCLIResetsCommands") {
+            await AnalyticsTests().testCLIResetsCommands()
+        }
 
         print("\nTest Suite 'SeeUsageTests.xctest' passed at \(Date()).")
         print("\t Executed \(totalTests) tests, with \(failedTests) failures (0 unexpected)")

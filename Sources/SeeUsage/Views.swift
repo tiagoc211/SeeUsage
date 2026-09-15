@@ -35,7 +35,12 @@ public final class SettingsWindowManager: NSObject, NSWindowDelegate {
     public static let shared = SettingsWindowManager()
     private var window: NSWindow?
 
-    public func show() {
+    public func show(tab: SettingsTab = .menubar) {
+        NotificationCenter.default.post(
+            name: NSNotification.Name("app.seeusage.selectSettingsTab"),
+            object: tab.rawValue
+        )
+
         if let win = window {
             win.orderFrontRegardless()
             win.makeKeyAndOrderFront(nil)
@@ -43,14 +48,14 @@ public final class SettingsWindowManager: NSObject, NSWindowDelegate {
             return
         }
 
-        let hosting = NSHostingController(rootView: SettingsView())
+        let hosting = NSHostingController(rootView: SettingsView(initialTab: tab))
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 590),
+            contentRect: NSRect(x: 0, y: 0, width: 880, height: 620),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        win.minSize = NSSize(width: 700, height: 520)
+        win.minSize = NSSize(width: 740, height: 500)
         win.title = "seeusage // settings"
         win.contentViewController = hosting
         win.center()
@@ -148,10 +153,17 @@ struct T3ToolbarButton: View {
     }
 }
 
+public enum PopoverTab: String, CaseIterable, Identifiable {
+    case quotas = "quotas"
+    case resets = "resets"
+    public var id: String { rawValue }
+}
+
 // MARK: - Usage Popover View (Dark Terminal Aesthetic)
 public struct UsagePopoverView: View {
     private var store = UsageStore.shared
     @Bindable private var settings = SettingsStore.shared
+    @State private var selectedPopoverTab: PopoverTab = .quotas
 
     public init() {}
 
@@ -164,11 +176,20 @@ public struct UsagePopoverView: View {
                 .fill(settings.currentTheme.border)
                 .frame(height: 1)
 
+            // Segmented Switcher (Quotas vs Resets)
+            popoverSegmentedBar
+
+            Rectangle()
+                .fill(settings.currentTheme.border)
+                .frame(height: 1)
+
             // Content Area
             if store.snapshots.isEmpty && store.isRefreshing {
                 loadingView
-            } else {
+            } else if selectedPopoverTab == .quotas {
                 contentScrollView
+            } else {
+                resetsScrollView
             }
 
             Rectangle()
@@ -178,7 +199,7 @@ public struct UsagePopoverView: View {
             // Footer Bar
             footerView
         }
-        .frame(width: 370)
+        .frame(width: 380)
         .background(settings.currentTheme.background)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: settings.selectedThemeID)
         .onAppear {
@@ -226,10 +247,24 @@ public struct UsagePopoverView: View {
                 }
 
                 T3ToolbarButton(
+                    icon: "arrow.counterclockwise.circle",
+                    helpText: "Resets & Cycles"
+                ) {
+                    SettingsWindowManager.shared.show(tab: .resets)
+                }
+
+                T3ToolbarButton(
+                    icon: "chart.xyaxis.line",
+                    helpText: "Analytics Trends"
+                ) {
+                    SettingsWindowManager.shared.show(tab: .analytics)
+                }
+
+                T3ToolbarButton(
                     icon: "gearshape",
                     helpText: "Settings"
                 ) {
-                    SettingsWindowManager.shared.show()
+                    SettingsWindowManager.shared.show(tab: .menubar)
                 }
 
                 T3ToolbarButton(
@@ -242,6 +277,242 @@ public struct UsagePopoverView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    // MARK: - Popover Segmented Bar
+    private var popoverSegmentedBar: some View {
+        HStack(spacing: 0) {
+            popoverTabButton(
+                title: "QUOTAS",
+                icon: "gauge.with.needle",
+                tab: .quotas
+            )
+
+            Rectangle()
+                .fill(settings.currentTheme.border)
+                .frame(width: 1, height: 16)
+
+            popoverTabButton(
+                title: "RESETS & CYCLES",
+                icon: "arrow.counterclockwise.circle",
+                tab: .resets
+            )
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.white.opacity(0.02))
+    }
+
+    private func popoverTabButton(title: String, icon: String, tab: PopoverTab) -> some View {
+        let isSelected = selectedPopoverTab == tab
+        return Button {
+            selectedPopoverTab = tab
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 9.5))
+                Text(title)
+                    .font(.system(size: 10, weight: isSelected ? .bold : .medium, design: .monospaced))
+            }
+            .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(isSelected ? settings.currentTheme.surfaceHover : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Resets Scroll View
+    private var resetsScrollView: some View {
+        let bankedCredits = AnalyticsManager.shared.getAvailableBankedCredits(
+            from: store.snapshots,
+            profiles: settings.codexProfiles
+        )
+        let upcoming = AnalyticsManager.shared.computeUpcomingResets(from: store.snapshots)
+            .filter { $0.resetsAt > Date().addingTimeInterval(-300) }
+        let history = AnalyticsManager.shared.getResetEvents(limit: 6)
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                // Section 0: Banked Resets Reserve (Manual Refills)
+                if !bankedCredits.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        sectionLabel(title: "BANKED RESETS (CRÉDITOS MANUAIS)", tag: "\(bankedCredits.count)")
+
+                        ForEach(bankedCredits, id: \.credit.id) { item in
+                            BankedResetBannerView(profile: item.profile, credit: item.credit)
+                        }
+                    }
+                }
+
+                // Section 1: Upcoming Renewal Cycles
+                VStack(alignment: .leading, spacing: 6) {
+                    sectionLabel(title: "ACTIVE RENEWAL CYCLES", tag: "\(upcoming.count)")
+
+                    if upcoming.isEmpty {
+                        emptyCard(text: "No active renewal schedules detected.")
+                    } else {
+                        ForEach(upcoming) { u in
+                            popoverUpcomingRow(u: u)
+                        }
+                    }
+                }
+
+                // Section 2: Recent Reset Audit History
+                VStack(alignment: .leading, spacing: 6) {
+                    sectionLabel(title: "RECENT RESET AUDIT LOG", tag: "\(history.count)")
+
+                    if history.isEmpty {
+                        VStack(spacing: 6) {
+                            Text("No resets recorded yet.")
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(settings.currentTheme.textMuted)
+                            Button {
+                                AnalyticsManager.shared.seedDemoResetDataIfEmpty()
+                            } label: {
+                                Text("Seed Demo Resets")
+                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity)
+                        .background(t3CardBackground)
+                    } else {
+                        ForEach(history) { h in
+                            popoverHistoryRow(h: h)
+                        }
+                    }
+                }
+
+                // Quick Link to full settings window
+                Button {
+                    SettingsWindowManager.shared.show(tab: .resets)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 10))
+                        Text("Open Full Resets Dashboard...")
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                    .foregroundStyle(settings.currentTheme.cyan)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.03))
+                    .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(width: 380)
+        .frame(minHeight: 260, maxHeight: 490)
+    }
+
+    private func popoverUpcomingRow(u: UpcomingResetInfo) -> some View {
+        let isAgy = u.service == "Antigravity"
+        let serviceColor = isAgy ? settings.currentTheme.purple : settings.currentTheme.green
+        let pct = u.currentRemainingPercent ?? 100.0
+        let color = t3QuotaColor(for: pct)
+
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(isAgy ? "[agy]" : "[codex]")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(serviceColor)
+
+                Text(u.profileName)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.textPrimary)
+                    .lineLimit(1)
+
+                if let sc = u.scope {
+                    Text("(\(sc.lowercased()))")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
+                Spacer()
+
+                Text(u.windowLabel)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.accent)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: 6) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.08)).frame(height: 5)
+                        Capsule().fill(color).frame(width: max(3, geo.size.width * CGFloat(pct / 100.0)), height: 5)
+                    }
+                }
+                .frame(height: 5)
+
+                Text(String(format: "%.0f%%", pct))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(color)
+                    .frame(width: 32, alignment: .trailing)
+            }
+
+            HStack {
+                Text("Renews \(Formatters.resetDescription(for: u.resetsAt).lowercased())")
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.cyan)
+
+                Spacer()
+
+                Text(Formatters.timeOnly(for: u.resetsAt))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(settings.currentTheme.textMuted)
+            }
+        }
+        .padding(8)
+        .background(t3CardBackground)
+    }
+
+    private func popoverHistoryRow(h: ResetEvent) -> some View {
+        let isAgy = h.service == "Antigravity"
+        let serviceColor = isAgy ? settings.currentTheme.purple : settings.currentTheme.green
+
+        return HStack(spacing: 6) {
+            Text(isAgy ? "[agy]" : "[cx]")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundStyle(serviceColor)
+
+            Text(h.profileName)
+                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .foregroundStyle(settings.currentTheme.textPrimary)
+                .lineLimit(1)
+
+            Text(h.windowLabel)
+                .font(.system(size: 8.5, design: .monospaced))
+                .foregroundStyle(settings.currentTheme.textMuted)
+
+            Spacer()
+
+            Text(String(format: "%.0f%%➔%.0f%%", h.quotaBefore, h.quotaAfter))
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(settings.currentTheme.cyan)
+
+            Text(String(format: "+%.0f%%", h.quotaRestored))
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundStyle(settings.currentTheme.green)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(settings.currentTheme.green.opacity(0.12))
+                .cornerRadius(3)
+        }
+        .padding(6)
+        .background(t3CardBackground)
     }
 
     // MARK: - Loading View
@@ -318,7 +589,7 @@ public struct UsagePopoverView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 370)
+        .frame(width: 380)
         .frame(minHeight: 260, maxHeight: 490)
     }
 
@@ -491,6 +762,10 @@ struct CodexT3CardView: View {
                     }
                 }
 
+                if let credit = snapshot?.bankedCredits.first(where: { $0.status.lowercased() == "available" }) {
+                    BankedResetBannerView(profile: profile, credit: credit)
+                }
+
                 if let err = snapshot?.error {
                     Text(err)
                         .font(.system(size: 9, design: .monospaced))
@@ -644,9 +919,10 @@ private var t3CardBackground: some View {
 }
 
 // MARK: - Settings Tab Enum
-enum SettingsTab: String, CaseIterable, Identifiable {
+public enum SettingsTab: String, CaseIterable, Identifiable, Sendable {
     case menubar = "menubar"
     case hud = "hud"
+    case resets = "resets"
     case analytics = "analytics"
     case appearance = "appearance"
     case notifications = "notifications"
@@ -655,12 +931,13 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case sync = "sync"
     case about = "about"
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var title: String {
+    public var title: String {
         switch self {
         case .menubar: return "Menu Bar"
         case .hud: return "Desktop HUD"
+        case .resets: return "Resets & Cycles"
         case .analytics: return "Analytics"
         case .appearance: return "Appearance"
         case .notifications: return "Notifications"
@@ -671,10 +948,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         }
     }
 
-    var subtitle: String {
+    public var subtitle: String {
         switch self {
         case .menubar: return "display & launch"
         case .hud: return "floating widget"
+        case .resets: return "schedules & audit"
         case .analytics: return "trends & charts"
         case .appearance: return "themes & palette"
         case .notifications: return "alerts & thresholds"
@@ -685,10 +963,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         }
     }
 
-    var icon: String {
+    public var icon: String {
         switch self {
         case .menubar: return "menubar.rectangle"
         case .hud: return "macwindow.on.rectangle"
+        case .resets: return "arrow.counterclockwise.circle"
         case .analytics: return "chart.xyaxis.line"
         case .appearance: return "paintbrush.fill"
         case .notifications: return "bell.badge.fill"
@@ -708,7 +987,9 @@ public struct SettingsView: View {
     @State private var editingID: UUID?
     @State private var editName = ""
 
-    public init() {}
+    public init(initialTab: SettingsTab = .menubar) {
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     public var body: some View {
         HStack(spacing: 0) {
@@ -730,9 +1011,14 @@ public struct SettingsView: View {
                     .fill(settings.currentTheme.border)
                     .frame(height: 1)
 
-                ScrollView {
+                if selectedTab == .resets || selectedTab == .analytics {
                     detailContent
-                        .padding(22)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        detailContent
+                            .padding(22)
+                    }
                 }
             }
             .background(settings.currentTheme.background)
@@ -740,6 +1026,11 @@ public struct SettingsView: View {
         .frame(minWidth: 720, minHeight: 540)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: selectedTab)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: settings.selectedThemeID)
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("app.seeusage.selectSettingsTab"))) { notif in
+            if let tabStr = notif.object as? String, let tab = SettingsTab(rawValue: tabStr) {
+                selectedTab = tab
+            }
+        }
     }
 
     // MARK: - Sidebar View
@@ -886,6 +1177,16 @@ public struct SettingsView: View {
                 )
         case .hud:
             Text(settings.hudEnabled ? (settings.hudCompactMode ? "pill" : "card") : "off")
+                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1.5)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(Color.white.opacity(0.04))
+                )
+        case .resets:
+            Text("\(AnalyticsManager.shared.computeUpcomingResets(from: UsageStore.shared.snapshots).count)")
                 .font(.system(size: 8.5, weight: .bold, design: .monospaced))
                 .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
                 .padding(.horizontal, 4)
@@ -1060,8 +1361,10 @@ public struct SettingsView: View {
             menuBarPane
         case .hud:
             hudPane
+        case .resets:
+            AnalyticsView(initialTab: .resets)
         case .analytics:
-            AnalyticsView()
+            AnalyticsView(initialTab: .trends)
         case .appearance:
             appearancePane
         case .notifications:
@@ -2355,6 +2658,12 @@ struct ThemeCardView: View {
 
 // MARK: - Formatters
 public enum Formatters {
+    public static func timeOnly(for date: Date) -> String {
+        let df = DateFormatter()
+        df.dateFormat = "HH:mm"
+        return df.string(from: date)
+    }
+
     public static func resetDescription(for date: Date) -> String {
         let now = Date()
         let interval = date.timeIntervalSince(now)
@@ -2504,6 +2813,130 @@ public struct MenuBarModeCard: View {
         case .dual: return "cx: 92% · ag: 81%"
         case .gauge: return "■■■□ 47%"
         case .iconOnly: return "●"
+        }
+    }
+}
+
+// MARK: - Banked Reset Banner View
+struct BankedResetBannerView: View {
+    let profile: UsageProfile
+    let credit: BankedResetCredit
+    var settings: SettingsStore { SettingsStore.shared }
+    var store: UsageStore { UsageStore.shared }
+
+    @State private var showingConfirm = false
+    @State private var isActivating = false
+    @State private var resultMessage: String?
+    @State private var showingResult = false
+
+    private var planName: String {
+        if let p = store.snapshots[profile.id]?.plan, !p.isEmpty {
+            return p.capitalized
+        }
+        return "Plus"
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(settings.currentTheme.amber)
+                .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(profile.name)
+                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.textPrimary)
+                        .lineLimit(1)
+
+                    Text("[\(planName)]")
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.cyan)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(settings.currentTheme.cyan.opacity(0.12))
+                        .cornerRadius(3)
+
+                    Text("• 1 RESET")
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(settings.currentTheme.amber)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 4) {
+                    if let title = credit.title {
+                        Text(title)
+                            .font(.system(size: 8.5, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    if let exp = credit.expiresAt {
+                        Text("• expira \(Formatters.resetDescription(for: exp).lowercased())")
+                            .font(.system(size: 8.5, design: .monospaced))
+                            .foregroundStyle(settings.currentTheme.textMuted)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isActivating {
+                ProgressView()
+                    .scaleEffect(0.5)
+                    .frame(width: 46)
+            } else {
+                Button {
+                    showingConfirm = true
+                } label: {
+                    Text("ATIVAR")
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color.black)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(settings.currentTheme.amber)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(settings.currentTheme.amber.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(settings.currentTheme.amber.opacity(0.35), lineWidth: 1)
+        )
+        .confirmationDialog(
+            "Ativar Banked Reset para \(profile.name) [\(planName)]?",
+            isPresented: $showingConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Confirmar e Restaurar Quotas") {
+                Task {
+                    isActivating = true
+                    let res = await store.consumeBankedReset(for: profile, creditId: credit.id)
+                    isActivating = false
+                    resultMessage = res.message
+                    showingResult = true
+                }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Esta ação irá consumir 1 crédito de reset do plano \(planName) e restaurar imediatamente as quotas a 100%.")
+        }
+        .alert("Banked Reset", isPresented: $showingResult) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(resultMessage ?? "")
         }
     }
 }
