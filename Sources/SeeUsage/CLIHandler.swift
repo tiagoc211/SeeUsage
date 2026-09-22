@@ -723,19 +723,12 @@ public enum CLIHandler {
             print(analytics.exportCSV())
         case "json", "--json":
             print(analytics.exportJSON())
-        case "seed", "--seed":
-            analytics.seedDemoDataIfEmpty()
-            print("\n" + green("✓") + " Populated demo history data for analytics.\n")
         default:
             printAnalyticsDashboard(analytics: analytics)
         }
     }
 
     private static func printAnalyticsDashboard(analytics: AnalyticsManager) {
-        if analytics.snapshots.count < 2 {
-            analytics.seedDemoDataIfEmpty()
-        }
-
         let metrics = analytics.computeMetrics(days: 7)
         let daily = analytics.computeDailyConsumption(days: 7)
         let summaries = analytics.computeProfileSummaries(days: 7)
@@ -811,12 +804,6 @@ public enum CLIHandler {
         if subArg == "clear" || subArg == "--clear" {
             analytics.clearResets()
             print("\n" + green("✓") + " Quota reset history cleared (~/.config/seeusage/resets.json deleted).\n")
-            return
-        }
-
-        if subArg == "seed" || subArg == "--seed" {
-            analytics.seedDemoResetDataIfEmpty()
-            print("\n" + green("✓") + " Populated demo reset history for Codex & Antigravity.\n")
             return
         }
 
@@ -911,9 +898,7 @@ public enum CLIHandler {
         let store = UsageStore.shared
         let settings = SettingsStore.shared
         store.loadCache()
-        if store.snapshots.isEmpty {
-            await store.refresh()
-        }
+        await store.refresh(forceAfterCurrent: true)
 
         let bankedCredits = AnalyticsManager.shared.getAvailableBankedCredits(
             from: store.snapshots,
@@ -926,35 +911,40 @@ public enum CLIHandler {
         }
 
         // Match requested profile
-        let matchedItem: (profile: UsageProfile, credit: BankedResetCredit)?
+        let matchingItems: [(profile: UsageProfile, credit: BankedResetCredit)]
         if let t = target?.lowercased() {
-            matchedItem = bankedCredits.first { item in
+            matchingItems = bankedCredits.filter { item in
                 let lowName = item.profile.name.lowercased()
-                if lowName == t || lowName.contains(t) { return true }
-                if t == "cxp" && lowName.contains("pessoal") { return true }
-                if t == "cxt" && lowName.contains("trabalho") { return true }
-                return false
+                return CLIHandler.profileAlias(name: item.profile.name) == t || lowName == t || lowName.contains(t)
             }
         } else if bankedCredits.count == 1 {
-            matchedItem = bankedCredits.first
+            matchingItems = bankedCredits
         } else {
             print("\n" + amber("Multiple banked resets available. Please specify profile:"))
             for b in bankedCredits {
-                let alias = b.profile.name.lowercased().contains("pessoal") ? "cxp" : "cxt"
+                let alias = CLIHandler.profileAlias(name: b.profile.name)
                 print("  seeusage resets consume \(alias)  (\(b.profile.name))")
             }
             print("")
             return
         }
 
-        guard let targetItem = matchedItem else {
+        guard matchingItems.count == 1, let targetItem = matchingItems.first else {
+            if matchingItems.count > 1 {
+                print("\n" + amber("That profile name matches more than one configured profile. Use a unique alias:"))
+                for item in matchingItems {
+                    print("  seeusage resets consume \(CLIHandler.profileAlias(name: item.profile.name))  (\(item.profile.name))")
+                }
+                print("")
+                return
+            }
             print("\n" + red("✗") + " No available banked reset found matching \'\(target ?? "")\'.\n")
             return
         }
 
         let prof = targetItem.profile
         let credit = targetItem.credit
-        let title = credit.title ?? "Full reset (Weekly + 5 hr)"
+        let title = credit.title ?? "Available reset credit"
 
         print("\n" + bold(amber("⚡ BANKED RESET ACTIVATION")))
         print("  Profile: " + bold(prof.name))
@@ -977,7 +967,7 @@ public enum CLIHandler {
         }
 
         print(dim("\nConnecting to Codex app-server to consume credit..."))
-        let res = await store.consumeBankedReset(for: prof, creditId: credit.id)
+        let res = await store.consumeBankedReset(for: prof, creditId: credit.serverCreditID)
 
         if res.success {
             print("\n" + bold(green("✓ \(res.message)")))
@@ -1172,10 +1162,12 @@ public enum CLIHandler {
 
     // MARK: - Helpers
     public static func profileAlias(name: String) -> String {
-        let low = name.lowercased()
+        let low = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
         if low.contains("pessoal") || low.contains("personal") { return "cxp" }
         if low.contains("trabalho") || low.contains("work") { return "cxt" }
-        return low.replacingOccurrences(of: " ", with: "-")
+        let slug = low.replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "codex" : slug
     }
 
     private static func scopeBadge(scope: String) -> String {

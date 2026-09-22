@@ -123,7 +123,7 @@ public enum ProcessRunner {
         environment: [String: String] = [:],
         input: Data? = nil,
         timeout: TimeInterval = 15,
-        completionMarker: String? = nil
+        completionResponseID: Int? = nil
     ) async throws -> ProcessResult {
         try await Task.detached(priority: .userInitiated) {
             try runSynchronous(
@@ -132,7 +132,7 @@ public enum ProcessRunner {
                 environment: environment,
                 input: input,
                 timeout: timeout,
-                completionMarker: completionMarker
+                completionResponseID: completionResponseID
             )
         }.value
     }
@@ -143,7 +143,7 @@ public enum ProcessRunner {
         environment: [String: String],
         input: Data?,
         timeout: TimeInterval,
-        completionMarker: String?
+        completionResponseID: Int?
     ) throws -> ProcessResult {
         let process = Process()
         let stdoutPipe = Pipe()
@@ -164,25 +164,13 @@ public enum ProcessRunner {
         let stdoutData = ThreadSafeData()
         let stderrData = ThreadSafeData()
 
-        var markerFound = false
-        let markerLock = NSLock()
-
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
-            stdoutData.append(chunk)
-
-            if let marker = completionMarker {
-                markerLock.lock()
-                defer { markerLock.unlock() }
-                if !markerFound {
-                    let text = String(decoding: stdoutData.get(), as: UTF8.self)
-                    if text.contains(marker) || (marker == #""id":2"# && text.contains(#""id": 2"#)) {
-                        markerFound = true
-                        try? stdinPipe.fileHandleForWriting.close()
-                        process.terminate()
-                    }
-                }
+            let completed = stdoutData.append(chunk, lookingForJSONRPCID: completionResponseID)
+            if completed {
+                try? stdinPipe.fileHandleForWriting.close()
+                process.terminate()
             }
         }
 
@@ -204,7 +192,7 @@ public enum ProcessRunner {
 
         if let inputData = input {
             try? stdinPipe.fileHandleForWriting.write(contentsOf: inputData)
-            if completionMarker == nil {
+            if completionResponseID == nil {
                 try? stdinPipe.fileHandleForWriting.close()
             }
         } else {
@@ -237,12 +225,32 @@ public enum ProcessRunner {
 
 private final class ThreadSafeData: @unchecked Sendable {
     private var data = Data()
+    private var lineBuffer = Data()
     private let lock = NSLock()
 
     func append(_ newChunk: Data) {
         lock.lock()
         defer { lock.unlock() }
         data.append(newChunk)
+    }
+
+    func append(_ newChunk: Data, lookingForJSONRPCID expectedID: Int?) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        data.append(newChunk)
+        guard let expectedID else { return false }
+
+        lineBuffer.append(newChunk)
+        while let newline = lineBuffer.firstIndex(of: 0x0A) {
+            let line = lineBuffer.prefix(upTo: newline)
+            lineBuffer.removeSubrange(...newline)
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  let id = object["id"] as? NSNumber,
+                  id.intValue == expectedID
+            else { continue }
+            return true
+        }
+        return false
     }
 
     func get() -> Data {

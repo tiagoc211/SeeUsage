@@ -63,6 +63,8 @@ public struct UsageWindow: Identifiable, Codable, Hashable, Sendable {
 // MARK: - Banked Reset Credits (Codex On-Demand Refills)
 public struct BankedResetCredit: Identifiable, Codable, Sendable {
     public let id: String
+    /// The server supplied identifier. Some Codex responses expose only a count.
+    public let serverCreditID: String?
     public let resetType: String?
     public let status: String
     public let title: String?
@@ -72,6 +74,7 @@ public struct BankedResetCredit: Identifiable, Codable, Sendable {
 
     public init(
         id: String,
+        serverCreditID: String? = nil,
         resetType: String? = nil,
         status: String = "available",
         title: String? = nil,
@@ -80,6 +83,7 @@ public struct BankedResetCredit: Identifiable, Codable, Sendable {
         expiresAt: Date? = nil
     ) {
         self.id = id
+        self.serverCreditID = serverCreditID
         self.resetType = resetType
         self.status = status
         self.title = title

@@ -24,7 +24,8 @@ public final class UsageStore {
     public private(set) var isRefreshing: Bool = false
     public private(set) var lastUpdated: Date? = nil
 
-    private var refreshTask: Task<Void, Never>?
+    private var timerTask: Task<Void, Never>?
+    private var activeRefreshTask: Task<Void, Never>?
     private static let cacheKey = "app.seeusage.snapshots.cache"
 
     public static var sharedCacheURL: URL {
@@ -35,7 +36,7 @@ public final class UsageStore {
 
     public var minRemainingPercent: Int? {
         var minVal: Double? = nil
-        for (_, snapshot) in snapshots {
+        for (_, snapshot) in snapshots where snapshot.error == nil && !snapshot.isStale {
             for window in snapshot.windows {
                 if let pct = window.remainingPercent {
                     if let current = minVal {
@@ -52,7 +53,7 @@ public final class UsageStore {
     public var codexLowestPercent: Int? {
         let codexIDs = Set(SettingsStore.shared.codexProfiles.map(\.id))
         var minVal: Double? = nil
-        for (id, snapshot) in snapshots where codexIDs.contains(id) {
+        for (id, snapshot) in snapshots where codexIDs.contains(id) && snapshot.error == nil && !snapshot.isStale {
             for window in snapshot.windows {
                 if let pct = window.remainingPercent {
                     minVal = min(minVal ?? pct, pct)
@@ -64,6 +65,7 @@ public final class UsageStore {
 
     public var antigravityLowestPercent: Int? {
         guard let snapshot = snapshots[SettingsStore.antigravityProfileID] else { return nil }
+        guard snapshot.error == nil, !snapshot.isStale else { return nil }
         var minVal: Double? = nil
         for window in snapshot.windows {
             if let pct = window.remainingPercent {
@@ -95,6 +97,7 @@ public final class UsageStore {
         if let data = UserDefaults.standard.data(forKey: Self.cacheKey),
            let decoded = try? decoder.decode([UUID: UsageSnapshot].self, from: data) {
             self.snapshots = decoded
+            self.lastUpdated = decoded.values.map(\.fetchedAt).max()
             NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
         }
     }
@@ -114,8 +117,8 @@ public final class UsageStore {
     }
 
     public func startTimer() {
-        refreshTask?.cancel()
-        refreshTask = Task { [weak self] in
+        timerTask?.cancel()
+        timerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
                 guard let self = self, !Task.isCancelled else { break }
@@ -144,11 +147,27 @@ public final class UsageStore {
         }
     }
 
-    public func refresh() async {
-        guard !isRefreshing else { return }
-        isRefreshing = true
-        defer { isRefreshing = false }
+    public func refresh(forceAfterCurrent: Bool = false) async {
+        if let activeRefreshTask {
+            await activeRefreshTask.value
+            if forceAfterCurrent {
+                await refresh()
+            }
+            return
+        }
 
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performRefresh()
+        }
+        activeRefreshTask = task
+        isRefreshing = true
+        await task.value
+        activeRefreshTask = nil
+        isRefreshing = false
+    }
+
+    private func performRefresh() async {
         let settings = SettingsStore.shared
         let codexPath = ProcessRunner.resolveExecutable(named: "codex", overridePath: settings.codexExecutableOverride)
         let agyPath = ProcessRunner.resolveExecutable(named: "agy", overridePath: settings.antigravityExecutableOverride)
@@ -156,6 +175,8 @@ public final class UsageStore {
         let codexProfiles = settings.codexProfiles
         let agyProfileID = SettingsStore.antigravityProfileID
         let oldSnapshots = self.snapshots
+        let activeProfileIDs = Set(codexProfiles.map(\.id) + [agyProfileID])
+        self.snapshots = self.snapshots.filter { activeProfileIDs.contains($0.key) }
 
         await withTaskGroup(of: (UUID, UsageSnapshot).self) { group in
             // Codex profiles
@@ -179,32 +200,50 @@ public final class UsageStore {
             }
 
             for await (id, snapshot) in group {
-                if let err = snapshot.error, let old = self.snapshots[id], !old.windows.isEmpty {
+                if let err = snapshot.error, let old = self.snapshots[id] {
                     self.snapshots[id] = UsageSnapshot(
                         profileID: id,
                         plan: old.plan,
                         windows: old.windows,
+                        availableResetCredits: old.availableResetCredits,
+                        bankedCredits: old.bankedCredits,
                         fetchedAt: old.fetchedAt,
                         error: "\(err) (Outdated)"
                     )
                 } else {
                     self.snapshots[id] = snapshot
                 }
-                self.saveCache()
-                self.lastUpdated = Date()
-                NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
             }
         }
 
+        self.lastUpdated = Date()
+        self.saveCache()
+        NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
         NotificationManager.shared.evaluateSnapshots(oldSnapshots: oldSnapshots, newSnapshots: self.snapshots)
         AnalyticsManager.shared.recordSnapshots(self.snapshots)
     }
 
     // MARK: - Banked Reset Consumption
-    public func consumeBankedReset(for profile: UsageProfile, creditId: String) async -> (success: Bool, message: String) {
-        let exe = SettingsStore.shared.codexExecutableOverride.isEmpty
-            ? (ProcessRunner.resolveExecutable(named: "codex") ?? "codex")
-            : SettingsStore.shared.codexExecutableOverride
+    public func consumeBankedReset(for profile: UsageProfile, creditId: String?) async -> (success: Bool, message: String) {
+        await refresh(forceAfterCurrent: true)
+        guard let snapshot = snapshots[profile.id], snapshot.error == nil else {
+            return (false, snapshots[profile.id]?.error ?? "No current usage data for this profile.")
+        }
+
+        if let creditId {
+            guard snapshot.bankedCredits.contains(where: { $0.serverCreditID == creditId || $0.id == creditId }) else {
+                return (false, "That reset credit is no longer available. Refresh and try again.")
+            }
+        } else if (snapshot.availableResetCredits ?? 0) < 1 {
+            return (false, "No available reset credit found on this account.")
+        }
+
+        guard let exe = ProcessRunner.resolveExecutable(
+            named: "codex",
+            overridePath: SettingsStore.shared.codexExecutableOverride
+        ) else {
+            return (false, "Codex CLI not found.")
+        }
 
         let res = await CodexClient.consumeResetCredit(
             profile: profile,
@@ -213,26 +252,7 @@ public final class UsageStore {
         )
 
         if res.success {
-            let primaryWindow = snapshots[profile.id]?.windows.first
-            let quotaBefore = primaryWindow?.remainingPercent ?? 0.0
-
-            AnalyticsManager.shared.recordResetEvent(
-                ResetEvent(
-                    id: UUID(),
-                    timestamp: Date(),
-                    profileID: profile.id,
-                    profileName: profile.name,
-                    service: "Codex",
-                    scope: nil,
-                    windowLabel: "Banked Reset",
-                    durationMinutes: nil,
-                    quotaBefore: quotaBefore,
-                    quotaAfter: 100.0
-                )
-            )
-
-            // Trigger full refresh to update rate limits and credit counts
-            await refresh()
+            await refresh(forceAfterCurrent: true)
         }
 
         return res

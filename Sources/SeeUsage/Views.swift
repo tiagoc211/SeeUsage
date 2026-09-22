@@ -1,2942 +1,419 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
-// MARK: - Dynamic Theme Bridge
-public enum T3Theme {
-    public static var background: Color { SettingsStore.shared.currentTheme.background }
-    public static var surface: Color { SettingsStore.shared.currentTheme.surface }
-    public static var surfaceHover: Color { SettingsStore.shared.currentTheme.surfaceHover }
-    public static var border: Color { SettingsStore.shared.currentTheme.border }
-    public static var borderActive: Color { SettingsStore.shared.currentTheme.borderActive }
-
-    public static var textPrimary: Color { SettingsStore.shared.currentTheme.textPrimary }
-    public static var textSecondary: Color { SettingsStore.shared.currentTheme.textSecondary }
-    public static var textMuted: Color { SettingsStore.shared.currentTheme.textMuted }
-
-    public static var green: Color { SettingsStore.shared.currentTheme.green }
-    public static var amber: Color { SettingsStore.shared.currentTheme.amber }
-    public static var red: Color { SettingsStore.shared.currentTheme.red }
-    public static var cyan: Color { SettingsStore.shared.currentTheme.cyan }
-    public static var purple: Color { SettingsStore.shared.currentTheme.purple }
-    public static var accent: Color { SettingsStore.shared.currentTheme.accent }
-}
-
-func t3QuotaColor(for percent: Double?) -> Color {
-    let theme = SettingsStore.shared.currentTheme
-    guard let pct = percent else { return theme.textMuted }
-    if pct <= 15 { return theme.red }
-    if pct <= 35 { return theme.amber }
-    return theme.green
-}
-
-// MARK: - Settings Window Manager
 @MainActor
 public final class SettingsWindowManager: NSObject, NSWindowDelegate {
     public static let shared = SettingsWindowManager()
     private var window: NSWindow?
 
-    public func show(tab: SettingsTab = .menubar) {
-        NotificationCenter.default.post(
-            name: NSNotification.Name("app.seeusage.selectSettingsTab"),
-            object: tab.rawValue
-        )
+    private override init() {
+        super.init()
+    }
 
-        if let win = window {
-            win.orderFrontRegardless()
-            win.makeKeyAndOrderFront(nil)
+    public func show(tab: SettingsTab = .menubar) {
+        if let window {
+            NotificationCenter.default.post(
+                name: NSNotification.Name("app.seeusage.selectSettingsTab"),
+                object: tab.rawValue
+            )
             NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
             return
         }
 
-        let hosting = NSHostingController(rootView: SettingsView(initialTab: tab))
-        let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 880, height: 620),
+        let panel = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 500),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        win.minSize = NSSize(width: 740, height: 500)
-        win.title = "seeusage // settings"
-        win.contentViewController = hosting
-        win.center()
-        win.isReleasedWhenClosed = false
-        win.delegate = self
-        self.window = win
-        win.orderFrontRegardless()
-        win.makeKeyAndOrderFront(nil)
+        panel.title = "SeeUsage Settings"
+        panel.contentMinSize = NSSize(width: 560, height: 440)
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+        panel.contentViewController = NSHostingController(rootView: SettingsView(initialTab: tab))
+        panel.center()
+        window = panel
         NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
     }
 
     public func windowWillClose(_ notification: Notification) {
-        self.window = nil
+        window = nil
     }
 }
 
-// MARK: - Terminal Quick Copy Button
-struct T3CopyButton: View {
-    let command: String
-    let label: String
-    @State private var copied = false
-
-    init(command: String, label: String = "copy") {
-        self.command = command
-        self.label = label
-    }
-
-    var body: some View {
-        Button {
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(command, forType: .string)
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                copied = true
-            }
-            Task {
-                try? await Task.sleep(nanoseconds: 1_400_000_000)
-                withAnimation { copied = false }
-            }
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 8, weight: .bold))
-                Text(copied ? "copied" : label)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-            }
-            .foregroundStyle(copied ? T3Theme.green : T3Theme.textMuted)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(copied ? T3Theme.green.opacity(0.15) : Color.white.opacity(0.04))
-            )
-        }
-        .buttonStyle(.plain)
-        .help("Copy command: \(command)")
-    }
-}
-
-// MARK: - Toolbar Icon Button
-struct T3ToolbarButton: View {
-    let icon: String
-    let helpText: String
-    var isSpinning: Bool = false
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isHovered ? T3Theme.surfaceHover : Color.clear)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .stroke(isHovered ? T3Theme.borderActive : Color.clear, lineWidth: 1)
-                    )
-                    .frame(width: 24, height: 24)
-
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(isHovered ? T3Theme.textPrimary : T3Theme.textSecondary)
-                    .rotationEffect(.degrees(isSpinning ? 360 : 0))
-                    .animation(
-                        isSpinning
-                            ? .linear(duration: 0.8).repeatForever(autoreverses: false)
-                            : .default,
-                        value: isSpinning
-                    )
-            }
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .help(helpText)
-    }
-}
-
-public enum PopoverTab: String, CaseIterable, Identifiable {
-    case quotas = "quotas"
-    case resets = "resets"
+public enum SettingsTab: String, CaseIterable, Identifiable, Sendable {
+    case menubar, hud, resets, analytics, appearance, notifications, profiles, executables, sync, about
     public var id: String { rawValue }
 }
 
-// MARK: - Usage Popover View (Dark Terminal Aesthetic)
+private struct PendingReset: Identifiable {
+    let profile: UsageProfile
+    let credit: BankedResetCredit
+    var id: String { "\(profile.id.uuidString):\(credit.id)" }
+}
+
+public enum Formatters {
+    public static func resetDescription(for date: Date) -> String {
+        let seconds = max(0, Int(date.timeIntervalSinceNow))
+        if seconds == 0 { return "now" }
+        let days = seconds / 86_400
+        let hours = (seconds % 86_400) / 3_600
+        let minutes = (seconds % 3_600) / 60
+        if days > 0 { return "in \(days)d \(hours)h" }
+        if hours > 0 { return "in \(hours)h \(minutes)m" }
+        return "in \(max(1, minutes))m"
+    }
+}
+
 public struct UsagePopoverView: View {
-    private var store = UsageStore.shared
+    @Bindable private var store = UsageStore.shared
     @Bindable private var settings = SettingsStore.shared
-    @State private var selectedPopoverTab: PopoverTab = .quotas
+    @State private var pendingReset: PendingReset?
+    @State private var isConfirmingReset = false
+    @State private var resultMessage: String?
 
     public init() {}
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Header Bar
-            headerView
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if settings.codexProfiles.isEmpty {
+                        ContentUnavailableView {
+                            Label("No Codex profiles", systemImage: "person.crop.circle.badge.questionmark")
+                        } description: {
+                            Text("Add a Codex profile in Settings to see its usage.")
+                        } actions: {
+                            Button("Open Settings") { SettingsWindowManager.shared.show(tab: .profiles) }
+                                .buttonStyle(.bordered)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 150)
+                    } else {
+                        ForEach(settings.codexProfiles) { profile in
+                            profileSection(profile: profile, snapshot: store.snapshots[profile.id], provider: "Codex")
+                            Divider()
+                        }
+                    }
 
-            Rectangle()
-                .fill(settings.currentTheme.border)
-                .frame(height: 1)
+                    if let antigravity = store.snapshots[SettingsStore.antigravityProfileID] {
+                        profileSection(profile: UsageProfile(
+                            id: SettingsStore.antigravityProfileID,
+                            provider: .antigravity,
+                            name: "Antigravity"
+                        ), snapshot: antigravity, provider: "Antigravity")
+                    }
 
-            // Segmented Switcher (Quotas vs Resets)
-            popoverSegmentedBar
-
-            Rectangle()
-                .fill(settings.currentTheme.border)
-                .frame(height: 1)
-
-            // Content Area
-            if store.snapshots.isEmpty && store.isRefreshing {
-                loadingView
-            } else if selectedPopoverTab == .quotas {
-                contentScrollView
-            } else {
-                resetsScrollView
+                    if store.snapshots.isEmpty && !store.isRefreshing {
+                        Text("Usage will appear here after the first refresh.")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 24)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
-
-            Rectangle()
-                .fill(settings.currentTheme.border)
-                .frame(height: 1)
-
-            // Footer Bar
-            footerView
+            Divider()
+            footer
         }
-        .frame(width: 380)
-        .background(settings.currentTheme.background)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: settings.selectedThemeID)
-        .onAppear {
-            Task {
-                await store.refresh()
+        .frame(width: 360, height: 470)
+        .background(.background)
+        .confirmationDialog(
+            "Use a banked reset?",
+            isPresented: $isConfirmingReset,
+            titleVisibility: .visible
+        ) {
+            Button("Use Reset", role: .destructive) {
+                if let pendingReset { activate(pendingReset) }
             }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will use one reset credit on \(pendingReset?.profile.name ?? "this profile").")
+        }
+        .alert("Banked Reset", isPresented: Binding(
+            get: { resultMessage != nil },
+            set: { if !$0 { resultMessage = nil } }
+        )) {
+            Button("OK") { resultMessage = nil }
+        } message: {
+            Text(resultMessage ?? "")
         }
     }
 
-    // MARK: - Header
-    private var headerView: some View {
-        HStack(alignment: .center, spacing: 8) {
-            // Terminal Prompt Indicator
-            HStack(spacing: 6) {
-                Text("$")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.green)
-
-                Text("seeusage")
-                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textPrimary)
-
-                Text("--live")
-                    .font(.system(size: 11, weight: .regular, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textMuted)
+    private var header: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("SeeUsage").font(.headline)
+                Text("Remaining quota").font(.caption).foregroundStyle(.secondary)
             }
-
             Spacer()
+            if store.isRefreshing {
+                ProgressView().controlSize(.small)
+            } else {
+                Button {
+                    Task { await store.refresh(forceAfterCurrent: true) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .help("Refresh usage")
+            }
+            Button {
+                SettingsWindowManager.shared.show()
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.bordered)
+            .help("Settings")
+        }
+        .padding(14)
+    }
 
-            // Toolbar Controls
-            HStack(spacing: 3) {
-                T3ToolbarButton(
-                    icon: "arrow.clockwise",
-                    helpText: "Refresh quotas",
-                    isSpinning: store.isRefreshing
-                ) {
-                    Task { await store.refresh() }
+    @ViewBuilder
+    private func profileSection(profile: UsageProfile, snapshot: UsageSnapshot?, provider: String) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(profile.name).font(.headline)
+                Spacer()
+                if let plan = snapshot?.plan { Text(plan).font(.caption).foregroundStyle(.secondary) }
+            }
+
+            if let snapshot {
+                if let error = snapshot.error {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if snapshot.isStale {
+                    Label("Showing old data", systemImage: "clock")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
-                T3ToolbarButton(
-                    icon: settings.hudEnabled ? "macwindow.on.rectangle" : "macwindow",
-                    helpText: settings.hudEnabled ? "Hide Desktop HUD" : "Show Desktop HUD"
-                ) {
-                    FloatingHUDManager.shared.toggle()
+                ForEach(snapshot.windows) { window in
+                    quotaRow(window, provider: provider)
                 }
 
-                T3ToolbarButton(
-                    icon: "arrow.counterclockwise.circle",
-                    helpText: "Resets & Cycles"
-                ) {
-                    SettingsWindowManager.shared.show(tab: .resets)
+                if provider == "Codex" {
+                    let credits = snapshot.bankedCredits.filter { $0.status.lowercased() == "available" }
+                    let creditCount = max(snapshot.availableResetCredits ?? 0, credits.count)
+                    if creditCount > 0 {
+                        Menu {
+                            ForEach(credits) { credit in
+                                Button(credit.title ?? "Available reset credit") {
+                                    pendingReset = PendingReset(profile: profile, credit: credit)
+                                    isConfirmingReset = true
+                                }
+                            }
+                        } label: {
+                            Label("Use banked reset (\(creditCount))", systemImage: "bolt.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .disabled(snapshot.error != nil || snapshot.isStale)
+                    }
                 }
 
-                T3ToolbarButton(
-                    icon: "chart.xyaxis.line",
-                    helpText: "Analytics Trends"
-                ) {
-                    SettingsWindowManager.shared.show(tab: .analytics)
+                if snapshot.windows.isEmpty && snapshot.error == nil {
+                    Text("No quota windows returned.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+            } else if store.isRefreshing {
+                ProgressView("Loading usage…").controlSize(.small)
+            } else {
+                Text("No usage data yet.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+    }
 
-                T3ToolbarButton(
-                    icon: "gearshape",
-                    helpText: "Settings"
-                ) {
-                    SettingsWindowManager.shared.show(tab: .menubar)
-                }
-
-                T3ToolbarButton(
-                    icon: "power",
-                    helpText: "Quit"
-                ) {
-                    NSApplication.shared.terminate(nil)
+    private func quotaRow(_ window: UsageWindow, provider: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text([window.scope, window.label].compactMap { $0 }.joined(separator: " · "))
+                    .font(.subheadline)
+                Spacer()
+                if let percent = window.remainingPercent {
+                    Text("\(Int(percent.rounded()))%")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(percent <= 15 ? .red : (percent <= 35 ? .orange : .primary))
+                } else {
+                    Text("—").foregroundStyle(.secondary)
                 }
             }
+            if let percent = window.remainingPercent {
+                ProgressView(value: max(0, min(100, percent)), total: 100)
+                    .tint(percent <= 15 ? .red : (percent <= 35 ? .orange : .accentColor))
+            }
+            if let reset = window.resetsAt {
+                Text("Resets \(Formatters.resetDescription(for: reset))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var footer: some View {
+        HStack {
+            if let date = store.lastUpdated {
+                Text("Updated \(date.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Not updated yet").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Quit SeeUsage") { NSApp.terminate(nil) }
+                .buttonStyle(.plain)
+                .font(.caption)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
     }
 
-    // MARK: - Popover Segmented Bar
-    private var popoverSegmentedBar: some View {
-        HStack(spacing: 0) {
-            popoverTabButton(
-                title: "QUOTAS",
-                icon: "gauge.with.needle",
-                tab: .quotas
+    private func activate(_ item: PendingReset) {
+        Task {
+            let result = await store.consumeBankedReset(
+                for: item.profile,
+                creditId: item.credit.serverCreditID
             )
-
-            Rectangle()
-                .fill(settings.currentTheme.border)
-                .frame(width: 1, height: 16)
-
-            popoverTabButton(
-                title: "RESETS & CYCLES",
-                icon: "arrow.counterclockwise.circle",
-                tab: .resets
-            )
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Color.white.opacity(0.02))
-    }
-
-    private func popoverTabButton(title: String, icon: String, tab: PopoverTab) -> some View {
-        let isSelected = selectedPopoverTab == tab
-        return Button {
-            selectedPopoverTab = tab
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 9.5))
-                Text(title)
-                    .font(.system(size: 10, weight: isSelected ? .bold : .medium, design: .monospaced))
-            }
-            .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(isSelected ? settings.currentTheme.surfaceHover : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Resets Scroll View
-    private var resetsScrollView: some View {
-        let bankedCredits = AnalyticsManager.shared.getAvailableBankedCredits(
-            from: store.snapshots,
-            profiles: settings.codexProfiles
-        )
-        let upcoming = AnalyticsManager.shared.computeUpcomingResets(from: store.snapshots)
-            .filter { $0.resetsAt > Date().addingTimeInterval(-300) }
-        let history = AnalyticsManager.shared.getResetEvents(limit: 6)
-
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                // Section 0: Banked Resets Reserve (Manual Refills)
-                if !bankedCredits.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        sectionLabel(title: "BANKED RESETS (CRÉDITOS MANUAIS)", tag: "\(bankedCredits.count)")
-
-                        ForEach(bankedCredits, id: \.credit.id) { item in
-                            BankedResetBannerView(profile: item.profile, credit: item.credit)
-                        }
-                    }
-                }
-
-                // Section 1: Upcoming Renewal Cycles
-                VStack(alignment: .leading, spacing: 6) {
-                    sectionLabel(title: "ACTIVE RENEWAL CYCLES", tag: "\(upcoming.count)")
-
-                    if upcoming.isEmpty {
-                        emptyCard(text: "No active renewal schedules detected.")
-                    } else {
-                        ForEach(upcoming) { u in
-                            popoverUpcomingRow(u: u)
-                        }
-                    }
-                }
-
-                // Section 2: Recent Reset Audit History
-                VStack(alignment: .leading, spacing: 6) {
-                    sectionLabel(title: "RECENT RESET AUDIT LOG", tag: "\(history.count)")
-
-                    if history.isEmpty {
-                        VStack(spacing: 6) {
-                            Text("No resets recorded yet.")
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textMuted)
-                            Button {
-                                AnalyticsManager.shared.seedDemoResetDataIfEmpty()
-                            } label: {
-                                Text("Seed Demo Resets")
-                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.mini)
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity)
-                        .background(t3CardBackground)
-                    } else {
-                        ForEach(history) { h in
-                            popoverHistoryRow(h: h)
-                        }
-                    }
-                }
-
-                // Quick Link to full settings window
-                Button {
-                    SettingsWindowManager.shared.show(tab: .resets)
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.system(size: 10))
-                        Text("Open Full Resets Dashboard...")
-                            .font(.system(size: 10, design: .monospaced))
-                    }
-                    .foregroundStyle(settings.currentTheme.cyan)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.03))
-                    .cornerRadius(4)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(width: 380)
-        .frame(minHeight: 260, maxHeight: 490)
-    }
-
-    private func popoverUpcomingRow(u: UpcomingResetInfo) -> some View {
-        let isAgy = u.service == "Antigravity"
-        let serviceColor = isAgy ? settings.currentTheme.purple : settings.currentTheme.green
-        let pct = u.currentRemainingPercent ?? 100.0
-        let color = t3QuotaColor(for: pct)
-
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(isAgy ? "[agy]" : "[codex]")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(serviceColor)
-
-                Text(u.profileName)
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textPrimary)
-                    .lineLimit(1)
-
-                if let sc = u.scope {
-                    Text("(\(sc.lowercased()))")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                Spacer()
-
-                Text(u.windowLabel)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.accent)
-                    .lineLimit(1)
-            }
-
-            HStack(spacing: 6) {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.08)).frame(height: 5)
-                        Capsule().fill(color).frame(width: max(3, geo.size.width * CGFloat(pct / 100.0)), height: 5)
-                    }
-                }
-                .frame(height: 5)
-
-                Text(String(format: "%.0f%%", pct))
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(color)
-                    .frame(width: 32, alignment: .trailing)
-            }
-
-            HStack {
-                Text("Renews \(Formatters.resetDescription(for: u.resetsAt).lowercased())")
-                    .font(.system(size: 9.5, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.cyan)
-
-                Spacer()
-
-                Text(Formatters.timeOnly(for: u.resetsAt))
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textMuted)
-            }
-        }
-        .padding(8)
-        .background(t3CardBackground)
-    }
-
-    private func popoverHistoryRow(h: ResetEvent) -> some View {
-        let isAgy = h.service == "Antigravity"
-        let serviceColor = isAgy ? settings.currentTheme.purple : settings.currentTheme.green
-
-        return HStack(spacing: 6) {
-            Text(isAgy ? "[agy]" : "[cx]")
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundStyle(serviceColor)
-
-            Text(h.profileName)
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textPrimary)
-                .lineLimit(1)
-
-            Text(h.windowLabel)
-                .font(.system(size: 8.5, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textMuted)
-
-            Spacer()
-
-            Text(String(format: "%.0f%%➔%.0f%%", h.quotaBefore, h.quotaAfter))
-                .font(.system(size: 9.5, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.cyan)
-
-            Text(String(format: "+%.0f%%", h.quotaRestored))
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.green)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(settings.currentTheme.green.opacity(0.12))
-                .cornerRadius(3)
-        }
-        .padding(6)
-        .background(t3CardBackground)
-    }
-
-    // MARK: - Loading View
-    private var loadingView: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.small)
-            Text("polling rate limits...")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textMuted)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: 260)
-    }
-
-    // MARK: - Content Scroll View
-    private var contentScrollView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                // CODEX SECTION
-                VStack(alignment: .leading, spacing: 6) {
-                    sectionLabel(title: "CODEX PROFILES", tag: "CLI")
-
-                    if settings.codexProfiles.isEmpty {
-                        emptyCard(text: "No codex profiles found.")
-                    } else {
-                        ForEach(settings.codexProfiles) { profile in
-                            CodexT3CardView(
-                                profile: profile,
-                                snapshot: store.snapshots[profile.id]
-                            )
-                        }
-                    }
-                }
-
-                // ANTIGRAVITY SECTION
-                VStack(alignment: .leading, spacing: 6) {
-                    sectionLabel(title: "ANTIGRAVITY MODELS", tag: "AGY")
-
-                    let agySnapshot = store.snapshots[SettingsStore.antigravityProfileID]
-                    if let err = agySnapshot?.error, agySnapshot?.windows.isEmpty ?? true {
-                        errorCard(text: err)
-                    } else if let snapshot = agySnapshot {
-                        let grouped = Dictionary(grouping: snapshot.windows) { $0.scope ?? "Antigravity" }
-                        let keys = grouped.keys.sorted { lhs, rhs in
-                            if lhs.contains("Gemini") { return true }
-                            if rhs.contains("Gemini") { return false }
-                            return lhs < rhs
-                        }
-
-                        ForEach(keys, id: \.self) { scope in
-                            AntigravityT3CardView(
-                                scope: scope,
-                                windows: grouped[scope] ?? []
-                            )
-                        }
-
-                        if let err = agySnapshot?.error {
-                            HStack(spacing: 5) {
-                                Image(systemName: "exclamationmark.circle")
-                                    .font(.system(size: 10))
-                                Text(err)
-                                    .font(.system(size: 10, design: .monospaced))
-                            }
-                            .foregroundStyle(settings.currentTheme.amber)
-                            .padding(.horizontal, 4)
-                        }
-                    } else {
-                        loadingCard
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(width: 380)
-        .frame(minHeight: 260, maxHeight: 490)
-    }
-
-    // MARK: - Section Label
-    private func sectionLabel(title: String, tag: String) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textSecondary)
-                .tracking(0.8)
-
-            Text("[\(tag)]")
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textMuted)
-
-            Spacer()
-        }
-        .padding(.horizontal, 4)
-        .padding(.top, 2)
-    }
-
-    private func emptyCard(text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(settings.currentTheme.textMuted)
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(t3CardBackground)
-    }
-
-    private func errorCard(text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(settings.currentTheme.amber)
-            Text(text)
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textSecondary)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(t3CardBackground)
-    }
-
-    private var loadingCard: some View {
-        HStack(spacing: 8) {
-            ProgressView().scaleEffect(0.6)
-            Text("fetching metrics...")
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textMuted)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(t3CardBackground)
-    }
-
-    // MARK: - Footer
-    private var footerView: some View {
-        HStack {
-            // Live Status Dot
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(store.isRefreshing ? settings.currentTheme.amber : settings.currentTheme.green)
-                    .frame(width: 6, height: 6)
-                    .shadow(color: (store.isRefreshing ? settings.currentTheme.amber : settings.currentTheme.green).opacity(0.6), radius: 3)
-
-                Text(store.isRefreshing ? "syncing" : "connected")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-            }
-
-            Spacer()
-
-            // Lowest Quota Monospace Chip
-            if let minPct = store.minRemainingPercent {
-                HStack(spacing: 4) {
-                    Text("min:")
-                        .font(.system(size: 9.5, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-
-                    Text("\(minPct)%")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(t3QuotaColor(for: Double(minPct)))
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(t3QuotaColor(for: Double(minPct)).opacity(0.12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .stroke(t3QuotaColor(for: Double(minPct)).opacity(0.25), lineWidth: 1)
-                        )
-                )
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-    }
-}
-
-// MARK: - Codex Card
-struct CodexT3CardView: View {
-    let profile: UsageProfile
-    let snapshot: UsageSnapshot?
-
-    private var aliasName: String {
-        let low = profile.name.lowercased()
-        if low.contains("pessoal") { return "cxp" }
-        if low.contains("trabalho") { return "cxt" }
-        return profile.name.lowercased()
-    }
-
-    private var exportCommand: String {
-        if let home = profile.homePath {
-            return "export CODEX_HOME=\"\(home)\""
-        }
-        return "unset CODEX_HOME"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Card Title Row
-            HStack(alignment: .center, spacing: 6) {
-                // Command chip
-                HStack(spacing: 3) {
-                    Text("$")
-                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(T3Theme.cyan)
-                    Text(aliasName)
-                        .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(T3Theme.textPrimary)
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
-                )
-
-                Text("(\(profile.name))")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(T3Theme.textMuted)
-
-                Spacer()
-
-                // Quick Copy export command
-                T3CopyButton(command: exportCommand)
-
-                if let plan = snapshot?.plan {
-                    Text("[\(plan.lowercased())]")
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(T3Theme.cyan)
-                }
-            }
-
-            // Quotas
-            if let err = snapshot?.error, snapshot?.windows.isEmpty ?? true {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 9.5))
-                    Text(err)
-                        .font(.system(size: 10, design: .monospaced))
-                }
-                .foregroundStyle(T3Theme.amber)
-            } else if let windows = snapshot?.windows, !windows.isEmpty {
-                VStack(spacing: 6) {
-                    ForEach(windows) { window in
-                        T3QuotaRowView(window: window)
-                    }
-                }
-
-                if let credit = snapshot?.bankedCredits.first(where: { $0.status.lowercased() == "available" }) {
-                    BankedResetBannerView(profile: profile, credit: credit)
-                }
-
-                if let err = snapshot?.error {
-                    Text(err)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(T3Theme.amber)
-                }
-            } else {
-                HStack(spacing: 6) {
-                    ProgressView().scaleEffect(0.5)
-                    Text("connecting...")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(T3Theme.textMuted)
-                }
-            }
-        }
-        .padding(10)
-        .background(t3CardBackground)
-    }
-}
-
-// MARK: - Antigravity Card
-struct AntigravityT3CardView: View {
-    let scope: String
-    let windows: [UsageWindow]
-
-    private var modelBadge: (label: String, color: Color) {
-        if scope.contains("Gemini") { return ("gemini", T3Theme.purple) }
-        if scope.contains("Claude") { return ("claude & gpt", T3Theme.amber) }
-        return (scope.lowercased(), T3Theme.green)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Scope Row
-            HStack(spacing: 6) {
-                HStack(spacing: 3) {
-                    Text("$")
-                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(T3Theme.cyan)
-                    Text("agy")
-                        .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(T3Theme.textPrimary)
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
-                )
-
-                Text("[\(modelBadge.label)]")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(modelBadge.color)
-
-                if scope.contains("Claude") {
-                    Text("(routed via agy)")
-                        .font(.system(size: 8.5, design: .monospaced))
-                        .foregroundStyle(T3Theme.textMuted.opacity(0.7))
-                }
-
-                Spacer()
-
-                // Quick copy command
-                T3CopyButton(command: "agy -p \"/usage\"", label: "usage")
-            }
-
-            // Quotas
-            VStack(spacing: 6) {
-                ForEach(windows) { window in
-                    T3QuotaRowView(window: window)
-                }
-            }
-        }
-        .padding(10)
-        .background(t3CardBackground)
-    }
-}
-
-// MARK: - Quota Row View
-struct T3QuotaRowView: View {
-    let window: UsageWindow
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .center, spacing: 8) {
-                // Window Tag
-                Text(window.label.lowercased())
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(T3Theme.textSecondary)
-                    .frame(width: 32, alignment: .leading)
-
-                // Industrial Fine Progress Bar
-                T3ProgressBar(percent: window.remainingPercent ?? 0)
-
-                // Percentage
-                Text(window.remainingPercent.map { "\(Int(round($0)))%" } ?? "--")
-                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(t3QuotaColor(for: window.remainingPercent))
-                    .frame(width: 38, alignment: .trailing)
-            }
-
-            // Reset Subtitle
-            if let reset = window.resetsAt {
-                HStack(spacing: 4) {
-                    Color.clear
-                        .frame(width: 32 + 8, height: 1)
-
-                    Text("↳ \(Formatters.resetDescription(for: reset).lowercased())")
-                        .font(.system(size: 9.5, design: .monospaced))
-                        .foregroundStyle(T3Theme.textMuted)
-                }
-            }
+            resultMessage = result.message
         }
     }
 }
 
-// MARK: - Fine Progress Bar
-struct T3ProgressBar: View {
-    let percent: Double
-
-    var body: some View {
-        GeometryReader { geo in
-            let clamped = max(0.0, min(100.0, percent))
-            let fillWidth = geo.size.width * CGFloat(clamped / 100.0)
-
-            ZStack(alignment: .leading) {
-                // Background Track
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-                    .frame(height: 5)
-
-                // Precision Progress Fill
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(t3QuotaColor(for: clamped))
-                    .frame(width: max(fillWidth, clamped > 0 ? 3 : 0), height: 5)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: clamped)
-            }
-        }
-        .frame(minWidth: 90)
-        .frame(height: 5)
-    }
+private enum PreferenceTab: String, CaseIterable, Identifiable {
+    case general, profiles
+    var id: String { rawValue }
 }
 
-// MARK: - Card Background
-private var t3CardBackground: some View {
-    RoundedRectangle(cornerRadius: 6, style: .continuous)
-        .fill(T3Theme.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(T3Theme.border, lineWidth: 1)
-        )
-}
-
-// MARK: - Settings Tab Enum
-public enum SettingsTab: String, CaseIterable, Identifiable, Sendable {
-    case menubar = "menubar"
-    case hud = "hud"
-    case resets = "resets"
-    case analytics = "analytics"
-    case appearance = "appearance"
-    case notifications = "notifications"
-    case profiles = "profiles"
-    case executables = "executables"
-    case sync = "sync"
-    case about = "about"
-
-    public var id: String { rawValue }
-
-    public var title: String {
-        switch self {
-        case .menubar: return "Menu Bar"
-        case .hud: return "Desktop HUD"
-        case .resets: return "Resets & Cycles"
-        case .analytics: return "Analytics"
-        case .appearance: return "Appearance"
-        case .notifications: return "Notifications"
-        case .profiles: return "Codex Profiles"
-        case .executables: return "Executables"
-        case .sync: return "Sync"
-        case .about: return "About & CLI"
-        }
-    }
-
-    public var subtitle: String {
-        switch self {
-        case .menubar: return "display & launch"
-        case .hud: return "floating widget"
-        case .resets: return "schedules & audit"
-        case .analytics: return "trends & charts"
-        case .appearance: return "themes & palette"
-        case .notifications: return "alerts & thresholds"
-        case .profiles: return "codex accounts"
-        case .executables: return "cli paths"
-        case .sync: return "polling frequency"
-        case .about: return "cli & commands"
-        }
-    }
-
-    public var icon: String {
-        switch self {
-        case .menubar: return "menubar.rectangle"
-        case .hud: return "macwindow.on.rectangle"
-        case .resets: return "arrow.counterclockwise.circle"
-        case .analytics: return "chart.xyaxis.line"
-        case .appearance: return "paintbrush.fill"
-        case .notifications: return "bell.badge.fill"
-        case .profiles: return "person.crop.circle"
-        case .executables: return "slider.horizontal.3"
-        case .sync: return "arrow.triangle.2.circlepath"
-        case .about: return "terminal.fill"
-        }
-    }
-}
-
-// MARK: - Settings View (Sidebar Navigation)
 public struct SettingsView: View {
-    @Bindable var settings = SettingsStore.shared
-    @State private var selectedTab: SettingsTab = .menubar
-    @State private var hoveredTab: SettingsTab?
-    @State private var editingID: UUID?
-    @State private var editName = ""
+    @Bindable private var settings = SettingsStore.shared
+    @State private var selectedTab: PreferenceTab
 
     public init(initialTab: SettingsTab = .menubar) {
-        _selectedTab = State(initialValue: initialTab)
+        _selectedTab = State(initialValue: initialTab == .profiles ? .profiles : .general)
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            // MARK: Left Sidebar
-            sidebarView
-                .frame(width: 215)
-                .background(settings.currentTheme.background)
-
-            // Vertical 1px boundary
-            Rectangle()
-                .fill(settings.currentTheme.border)
-                .frame(width: 1)
-
-            // MARK: Right Detail Pane
-            VStack(spacing: 0) {
-                detailHeaderView
-
-                Rectangle()
-                    .fill(settings.currentTheme.border)
-                    .frame(height: 1)
-
-                if selectedTab == .resets || selectedTab == .analytics {
-                    detailContent
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        detailContent
-                            .padding(22)
-                    }
-                }
-            }
-            .background(settings.currentTheme.background)
+        TabView(selection: $selectedTab) {
+            generalPreferences
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(PreferenceTab.general)
+            profilePreferences
+                .tabItem { Label("Profiles", systemImage: "person.crop.circle") }
+                .tag(PreferenceTab.profiles)
         }
-        .frame(minWidth: 720, minHeight: 540)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: selectedTab)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: settings.selectedThemeID)
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("app.seeusage.selectSettingsTab"))) { notif in
-            if let tabStr = notif.object as? String, let tab = SettingsTab(rawValue: tabStr) {
-                selectedTab = tab
+        .padding(20)
+        .frame(minWidth: 560, minHeight: 440)
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("app.seeusage.selectSettingsTab"))) { note in
+            if (note.object as? String) == SettingsTab.profiles.rawValue {
+                selectedTab = .profiles
+            } else {
+                selectedTab = .general
             }
         }
     }
 
-    // MARK: - Sidebar View
-    private var sidebarView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack(spacing: 7) {
-                Text("$")
-                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.green)
-
-                Text("seeusage")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textPrimary)
-
-                Text("// settings")
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textMuted)
-
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-
-            Rectangle()
-                .fill(settings.currentTheme.border)
-                .frame(height: 1)
-
-            // Navigation Section Label
-            Text("PREFERENCES")
-                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textMuted)
-                .tracking(1.0)
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 6)
-
-            // Navigation Items
-            VStack(spacing: 3) {
-                ForEach(SettingsTab.allCases) { tab in
-                    sidebarItem(for: tab)
+    private var generalPreferences: some View {
+        Form {
+            Section("Menu Bar") {
+                Toggle("Show SeeUsage icon", isOn: $settings.menuBarShowIcon)
+                Picker("Update interval", selection: $settings.refreshIntervalMinutes) {
+                    Text("1 minute").tag(1)
+                    Text("5 minutes").tag(5)
+                    Text("10 minutes").tag(10)
+                    Text("15 minutes").tag(15)
                 }
-            }
-            .padding(.horizontal, 8)
-
-            Spacer()
-
-            // Sidebar Footer: Active Theme Indicator
-            Rectangle()
-                .fill(settings.currentTheme.border)
-                .frame(height: 1)
-
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(settings.currentTheme.accent)
-                    .frame(width: 7, height: 7)
-                    .shadow(color: settings.currentTheme.accent.opacity(0.5), radius: 3)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("ACTIVE THEME")
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                    Text(settings.currentTheme.name)
-                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-                }
-
-                Spacer()
-
-                Text("[CORE]")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.cyan)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(settings.currentTheme.surface.opacity(0.4))
-        }
-    }
-
-    // MARK: - Sidebar Item
-    private func sidebarItem(for tab: SettingsTab) -> some View {
-        let isSelected = selectedTab == tab
-        let isHovered = hoveredTab == tab
-
-        return Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                selectedTab = tab
-            }
-        } label: {
-            HStack(spacing: 8) {
-                // Left accent bar
-                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                    .fill(isSelected ? settings.currentTheme.accent : Color.clear)
-                    .frame(width: 3, height: 16)
-
-                Image(systemName: tab.icon)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(isSelected ? settings.currentTheme.accent : (isHovered ? settings.currentTheme.textPrimary : settings.currentTheme.textSecondary))
-                    .frame(width: 16)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(tab.title)
-                        .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium, design: .monospaced))
-                        .foregroundStyle(isSelected ? settings.currentTheme.textPrimary : (isHovered ? settings.currentTheme.textPrimary : settings.currentTheme.textSecondary))
-
-                    Text(tab.subtitle)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                }
-
-                Spacer()
-
-                // Small badge
-                tabBadge(for: tab, isSelected: isSelected)
-            }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isSelected ? settings.currentTheme.surfaceHover : (isHovered ? settings.currentTheme.surface.opacity(0.5) : Color.clear))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .stroke(isSelected ? settings.currentTheme.borderActive : Color.clear, lineWidth: 1)
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hoveredTab = $0 ? tab : nil }
-    }
-
-    @ViewBuilder
-    private func tabBadge(for tab: SettingsTab, isSelected: Bool) -> some View {
-        switch tab {
-        case .menubar:
-            Text(settings.menuBarDisplayMode.badgeLabel)
-                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1.5)
-                .background(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
-                )
-        case .hud:
-            Text(settings.hudEnabled ? (settings.hudCompactMode ? "pill" : "card") : "off")
-                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1.5)
-                .background(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
-                )
-        case .resets:
-            Text("\(AnalyticsManager.shared.computeUpcomingResets(from: UsageStore.shared.snapshots).count)")
-                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1.5)
-                .background(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
-                )
-        case .analytics:
-            Text("7d")
-                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1.5)
-                .background(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
-                )
-        case .appearance:
-            Text(settings.currentTheme.category == "Core Themes" ? "core" : "ext")
-                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1.5)
-                .background(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
-                )
-        case .notifications:
-            Text(settings.notificationsEnabled ? "\(settings.criticalThresholdPercent)%" : "off")
-                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1.5)
-                .background(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
-                )
-        case .profiles:
-            Text("\(settings.codexProfiles.count)")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textMuted)
-        case .sync:
-            Text("\(settings.refreshIntervalMinutes)m")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textMuted)
-        default:
-            EmptyView()
-        }
-    }
-
-    // MARK: - Detail Header View
-    private var detailHeaderView: some View {
-        HStack(alignment: .center, spacing: 8) {
-            // Breadcrumbs
-            HStack(spacing: 5) {
-                Text("settings")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textMuted)
-                Text("/")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textMuted.opacity(0.5))
-                Text(selectedTab.rawValue)
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.accent)
+                Toggle("Launch at login", isOn: $settings.launchAtLogin)
             }
 
-            Spacer()
-
-            // Header Actions
-            switch selectedTab {
-            case .hud:
-                Button {
-                    FloatingHUDManager.shared.toggle()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: settings.hudEnabled ? "eye.slash.fill" : "eye.fill")
-                            .font(.system(size: 9))
-                        Text(settings.hudEnabled ? "hide hud" : "show hud")
-                            .font(.system(size: 10, design: .monospaced))
+            Section("Notifications") {
+                Toggle("Enable notifications", isOn: $settings.notificationsEnabled)
+                    .onChange(of: settings.notificationsEnabled) { _, enabled in
+                        if enabled { NotificationManager.shared.requestAuthorization() }
                     }
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            case .menubar:
-                if settings.menuBarDisplayMode != .percent || !settings.menuBarShowIcon {
-                    Button {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            settings.selectMenuBarMode(.percent)
-                            settings.menuBarShowIcon = true
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 9))
-                            Text("reset default")
-                                .font(.system(size: 10, design: .monospaced))
-                        }
-                        .foregroundStyle(settings.currentTheme.textSecondary)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            case .appearance:
-                if settings.selectedThemeID != "t3-default" {
-                    Button {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            settings.selectTheme("t3-default")
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 9))
-                            Text("reset default")
-                                .font(.system(size: 10, design: .monospaced))
-                        }
-                        .foregroundStyle(settings.currentTheme.textSecondary)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            case .profiles:
-                Button {
-                    chooseCodexHome()
-                } label: {
-                    Text("+ add profile")
-                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            case .notifications:
-                Button {
-                    NotificationManager.shared.sendTestNotification()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 9))
-                        Text("test alert")
-                            .font(.system(size: 10, design: .monospaced))
-                    }
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            case .sync:
-                Button {
-                    Task { await UsageStore.shared.refresh() }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 9.5))
-                        Text("sync now")
-                            .font(.system(size: 10, design: .monospaced))
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            default:
-                EmptyView()
-            }
-        }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 12)
-    }
-
-    // MARK: - Detail Content Switcher
-    @ViewBuilder
-    private var detailContent: some View {
-        switch selectedTab {
-        case .menubar:
-            menuBarPane
-        case .hud:
-            hudPane
-        case .resets:
-            AnalyticsView(initialTab: .resets)
-        case .analytics:
-            AnalyticsView(initialTab: .trends)
-        case .appearance:
-            appearancePane
-        case .notifications:
-            notificationsPane
-        case .profiles:
-            profilesPane
-        case .executables:
-            executablesPane
-        case .sync:
-            syncPane
-        case .about:
-            aboutPane
-        }
-    }
-
-    // MARK: - Desktop Mini-HUD Pane
-    private var hudPane: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            // Section Header Description
-            VStack(alignment: .leading, spacing: 4) {
-                Text("// DESKTOP MINI-HUD WIDGET")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.accent)
-
-                Text("A semi-translucent, draggable desktop widget that monitors active AI quotas in real-time without clicking the menu bar.")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Master Switch Card
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(settings.hudEnabled ? settings.currentTheme.accent.opacity(0.15) : Color.white.opacity(0.04))
-                            .frame(width: 32, height: 32)
-                        Image(systemName: settings.hudEnabled ? "macwindow.on.rectangle" : "macwindow")
-                            .font(.system(size: 14))
-                            .foregroundStyle(settings.hudEnabled ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Show Floating Desktop HUD")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textPrimary)
-                        Text("Display floating quota widget on your screen (draggable from anywhere)")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: Binding(
-                        get: { settings.hudEnabled },
-                        set: { newVal in
-                            if newVal {
-                                FloatingHUDManager.shared.show()
-                            } else {
-                                FloatingHUDManager.shared.hide()
-                            }
-                        }
-                    ))
-                    .toggleStyle(.switch)
-                    .scaleEffect(0.8)
-                }
-                .padding(14)
-            }
-            .background(t3CardBackground)
-
-            // Layout Mode Selector
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "rectangle.3.group")
-                        .font(.system(size: 11))
-                        .foregroundStyle(settings.currentTheme.accent)
-                    Text("WIDGET DISPLAY STYLE")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                }
-
-                HStack(spacing: 12) {
-                    // Pill Mode Card
-                    Button {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            settings.hudCompactMode = true
-                        }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Image(systemName: "capsule.portrait")
-                                    .rotationEffect(.degrees(90))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(settings.hudCompactMode ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-                                Text("Compact Pill")
-                                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(settings.hudCompactMode ? settings.currentTheme.textPrimary : settings.currentTheme.textSecondary)
-                                Spacer()
-                                if settings.hudCompactMode {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(settings.currentTheme.accent)
-                                }
-                            }
-
-                            Text("Ultra-minimal horizontal bar with quick metrics and micro gauge. Ideal beside IDE or terminal.")
-                                .font(.system(size: 9.5, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textMuted)
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, minHeight: 85, alignment: .topLeading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(settings.hudCompactMode ? settings.currentTheme.surfaceHover : Color.white.opacity(0.02))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(settings.hudCompactMode ? settings.currentTheme.accent : settings.currentTheme.border, lineWidth: 1.5)
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    // Detailed Card
-                    Button {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            settings.hudCompactMode = false
-                        }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Image(systemName: "square.text.square")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(!settings.hudCompactMode ? settings.currentTheme.cyan : settings.currentTheme.textMuted)
-                                Text("Detailed Card")
-                                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(!settings.hudCompactMode ? settings.currentTheme.textPrimary : settings.currentTheme.textSecondary)
-                                Spacer()
-                                if !settings.hudCompactMode {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(settings.currentTheme.cyan)
-                                }
-                            }
-
-                            Text("Rich floating card displaying full model lists, individual progress gauges, and countdown timers.")
-                                .font(.system(size: 9.5, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textMuted)
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, minHeight: 85, alignment: .topLeading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(!settings.hudCompactMode ? settings.currentTheme.surfaceHover : Color.white.opacity(0.02))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(!settings.hudCompactMode ? settings.currentTheme.cyan : settings.currentTheme.border, lineWidth: 1.5)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(14)
-            .background(t3CardBackground)
-
-            // Window Behavior & Opacity Card
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 8) {
-                    Image(systemName: "slider.horizontal.below.rectangle")
-                        .font(.system(size: 11))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                    Text("BEHAVIOR & TRANSPARENCY")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                }
-
-                // Always on top toggle
+                Toggle("Alert when quota is low", isOn: $settings.notifyOnCritical)
+                    .disabled(!settings.notificationsEnabled)
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Always on Top")
-                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textPrimary)
-                        Text("Keep the floating HUD above all application windows")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                    }
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { settings.hudAlwaysOnTop },
-                        set: { newVal in
-                            settings.hudAlwaysOnTop = newVal
-                            FloatingHUDManager.shared.applySettings()
-                        }
-                    ))
-                    .toggleStyle(.switch)
-                    .scaleEffect(0.8)
+                    Text("Low quota threshold")
+                    Slider(value: Binding(
+                        get: { Double(settings.criticalThresholdPercent) },
+                        set: { settings.criticalThresholdPercent = Int($0.rounded()) }
+                    ), in: 5...50, step: 5)
+                    Text("\(settings.criticalThresholdPercent)%")
+                        .monospacedDigit()
+                        .frame(width: 38, alignment: .trailing)
                 }
-
-                Rectangle()
-                    .fill(settings.currentTheme.border)
-                    .frame(height: 1)
-
-                // Opacity slider
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Background Opacity:")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textSecondary)
-                        Text("\(Int(round(settings.hudOpacity * 100)))%")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.accent)
-                        Spacer()
-                    }
-
-                    HStack(spacing: 12) {
-                        Text("40%")
-                            .font(.system(size: 9.5, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-
-                        Slider(
-                            value: $settings.hudOpacity,
-                            in: 0.40...1.00,
-                            step: 0.05
-                        )
-                        .accentColor(settings.currentTheme.accent)
-
-                        Text("100%")
-                            .font(.system(size: 9.5, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                    }
-                }
+                .disabled(!settings.notificationsEnabled || !settings.notifyOnCritical)
+                Toggle("Notify when quotas reset", isOn: $settings.notifyOnReset)
+                    .disabled(!settings.notificationsEnabled)
             }
-            .padding(14)
-            .background(t3CardBackground)
 
-            // CLI Quick Reference
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Image(systemName: "terminal")
-                        .font(.system(size: 10))
-                        .foregroundStyle(settings.currentTheme.green)
-                    Text("TERMINAL SHORTCUTS")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                }
-
-                VStack(spacing: 6) {
-                    hudCLICommandRow(cmd: "seeusage hud", desc: "View HUD status & layout")
-                    hudCLICommandRow(cmd: "seeusage hud toggle", desc: "Toggle HUD visibility on/off")
-                    hudCLICommandRow(cmd: "seeusage hud compact", desc: "Switch to compact pill mode")
-                    hudCLICommandRow(cmd: "seeusage hud full", desc: "Switch to detailed card mode")
-                }
+            DisclosureGroup("Command line tools") {
+                TextField("Codex executable path", text: $settings.codexExecutableOverride)
+                TextField("Antigravity executable path", text: $settings.antigravityExecutableOverride)
             }
-            .padding(14)
-            .background(t3CardBackground)
+
+            LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0")
         }
+        .formStyle(.grouped)
+        .tabItem { Label("General", systemImage: "gearshape") }
     }
 
-    private func hudCLICommandRow(cmd: String, desc: String) -> some View {
-        HStack(spacing: 8) {
-            Text("$")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.green)
-
-            Text(cmd)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textPrimary)
-
-            Spacer()
-
-            Text(desc)
-                .font(.system(size: 9.5, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textMuted)
-
-            T3CopyButton(command: cmd, label: "")
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(Color.white.opacity(0.02))
-        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-    }
-
-    // MARK: - Menu Bar & Display Pane
-    private var menuBarPane: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            // Section Header Description
-            VStack(alignment: .leading, spacing: 4) {
-                Text("// MENU BAR ITEM & LAUNCH")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.accent)
-
-                Text("Customize how SeeUsage presents quotas in your macOS menu bar and configure startup behavior.")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Live Simulated Menu Bar Preview
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    Text("LIVE MENU BAR PREVIEW")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textSecondary)
-                        .tracking(0.8)
-
-                    Text("[MACOS TOP BAR]")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-
-                    Spacer()
-                }
-
-                HStack(spacing: 12) {
-                    // Simulated Menu Bar strip
-                    HStack(spacing: 10) {
-                        Image(systemName: "applelogo")
-                            .font(.system(size: 11))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-
-                        Text("SeeUsage")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(settings.currentTheme.textSecondary)
-
-                        Spacer()
-
-                        // Simulated active item
-                        HStack(spacing: 5) {
-                            menuBarPreviewContent
-                        }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3.5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(settings.currentTheme.accent.opacity(0.16))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .stroke(settings.currentTheme.accent.opacity(0.4), lineWidth: 1)
-                                )
-                        )
-
-                        Image(systemName: "wifi")
-                            .font(.system(size: 10))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-
-                        Image(systemName: "battery.100")
-                            .font(.system(size: 11))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(settings.currentTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(settings.currentTheme.border, lineWidth: 1)
-                    )
-                }
-            }
-
-            // Mode Selection Cards
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Text("DISPLAY STYLES")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textSecondary)
-                        .tracking(0.8)
-
-                    Text("[SELECT ONE]")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-
-                    Spacer()
-                }
-
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                    ForEach(MenuBarDisplayMode.allCases) { mode in
-                        MenuBarModeCard(
-                            mode: mode,
-                            isSelected: settings.menuBarDisplayMode == mode
-                        ) {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                                settings.selectMenuBarMode(mode)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Additional Preferences
-            VStack(alignment: .leading, spacing: 10) {
-                Text("ADDITIONAL PREFERENCES")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-                    .tracking(0.8)
-
-                VStack(spacing: 8) {
-                    // Show Icon Toggle
-                    if settings.menuBarDisplayMode != .iconOnly {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Show Status Icon")
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(settings.currentTheme.textPrimary)
-                                Text("Display leading gauge icon before quota metrics")
-                                    .font(.system(size: 9.5, design: .monospaced))
-                                    .foregroundStyle(settings.currentTheme.textMuted)
-                            }
-                            Spacer()
-                            Toggle("", isOn: $settings.menuBarShowIcon)
-                                .labelsHidden()
-                                .toggleStyle(.switch)
-                        }
-                        .padding(12)
-                        .background(settings.currentTheme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(settings.currentTheme.border, lineWidth: 1)
-                        )
-                    }
-
-                    // Launch at Login Toggle
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Launch at Login")
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textPrimary)
-                            Text("Start SeeUsage automatically when logging into macOS")
-                                .font(.system(size: 9.5, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textMuted)
-                        }
-                        Spacer()
-                        Toggle("", isOn: $settings.launchAtLogin)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                    }
-                    .padding(12)
-                    .background(settings.currentTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(settings.currentTheme.border, lineWidth: 1)
-                    )
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var menuBarPreviewContent: some View {
-        let pct = UsageStore.shared.minRemainingPercent ?? 47
-        let cxPct = UsageStore.shared.codexLowestPercent ?? 92
-        let agPct = UsageStore.shared.antigravityLowestPercent ?? 81
-
-        switch settings.menuBarDisplayMode {
-        case .percent:
-            if settings.menuBarShowIcon {
-                Image(systemName: "gauge.with.needle")
-                    .font(.system(size: 11))
-                    .foregroundStyle(settings.currentTheme.accent)
-            }
-            Text("\(pct)%")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textPrimary)
-
-        case .dual:
-            if settings.menuBarShowIcon {
-                Image(systemName: "bolt.horizontal.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(settings.currentTheme.accent)
-            }
-            Text("cx: \(cxPct)% · ag: \(agPct)%")
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(settings.currentTheme.textPrimary)
-
-        case .gauge:
-            HStack(spacing: 4) {
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white.opacity(0.18))
-                        .frame(width: 24, height: 7)
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(settings.currentTheme.accent)
-                        .frame(width: CGFloat(pct) / 100.0 * 24, height: 6)
-                }
-                Text("\(pct)%")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textPrimary)
-            }
-
-        case .iconOnly:
-            Circle()
-                .fill(settings.currentTheme.accent)
-                .frame(width: 8, height: 8)
-                .shadow(color: settings.currentTheme.accent.opacity(0.5), radius: 3)
-        }
-    }
-
-    // MARK: - Appearance & Themes Pane
-    private var appearancePane: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            // Section Header Description
-            VStack(alignment: .leading, spacing: 4) {
-                Text("// THEMES & PALETTES")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.accent)
-
-                Text("Choose a visual theme for SeeUsage. Changes apply immediately across the app and menu bar.")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Category 1: Core Themes
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Text("CORE PRESETS")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textSecondary)
-                        .tracking(0.8)
-
-                    Text("[SIGNATURE PALETTES]")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-
-                    Spacer()
-                }
-
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                    ForEach(ThemeRegistry.allThemes.filter { $0.category == "Core Themes" }) { theme in
-                        ThemeCardView(theme: theme, isSelected: settings.selectedThemeID == theme.id) {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                                settings.selectTheme(theme.id)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Category 2: Developer Classics
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Text("DEVELOPER CLASSICS")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textSecondary)
-                        .tracking(0.8)
-
-                    Text("[POPULAR PALETTES]")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-
-                    Spacer()
-                }
-
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                    ForEach(ThemeRegistry.allThemes.filter { $0.category == "Developer Classics" }) { theme in
-                        ThemeCardView(theme: theme, isSelected: settings.selectedThemeID == theme.id) {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                                settings.selectTheme(theme.id)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Live Quota Preview Section
-            VStack(alignment: .leading, spacing: 8) {
-                Text("// LIVE QUOTA PREVIEW (\(settings.currentTheme.name.uppercased()))")
-                    .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-
-                VStack(spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text("crit")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textSecondary)
-                            .frame(width: 32, alignment: .leading)
-                        T3ProgressBar(percent: 12.0)
-                        Text("12%")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(t3QuotaColor(for: 12.0))
-                            .frame(width: 38, alignment: .trailing)
-                    }
-
-                    HStack(spacing: 8) {
-                        Text("warn")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textSecondary)
-                            .frame(width: 32, alignment: .leading)
-                        T3ProgressBar(percent: 32.0)
-                        Text("32%")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(t3QuotaColor(for: 32.0))
-                            .frame(width: 38, alignment: .trailing)
-                    }
-
-                    HStack(spacing: 8) {
-                        Text("good")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textSecondary)
-                            .frame(width: 32, alignment: .leading)
-                        T3ProgressBar(percent: 86.0)
-                        Text("86%")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(t3QuotaColor(for: 86.0))
-                            .frame(width: 38, alignment: .trailing)
-                    }
-                }
-                .padding(12)
-                .background(t3CardBackground)
-            }
-
-            // Palette Inspector Chips
-            VStack(alignment: .leading, spacing: 8) {
-                Text("// ACTIVE PALETTE VALUES")
-                    .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-
-                HStack(spacing: 8) {
-                    paletteChip(name: "bg", hex: settings.currentTheme.bgHex, color: settings.currentTheme.background)
-                    paletteChip(name: "surface", hex: settings.currentTheme.surfaceHex, color: settings.currentTheme.surface)
-                    paletteChip(name: "accent", hex: settings.currentTheme.accentHex, color: settings.currentTheme.accent)
-                    paletteChip(name: "secondary", hex: settings.currentTheme.secondaryHex, color: settings.currentTheme.cyan)
-                }
-            }
-        }
-    }
-
-    private func paletteChip(name: String, hex: String, color: Color) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(color)
-                .frame(width: 10, height: 10)
-                .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 1))
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(name)
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textMuted)
-                Text(hex)
-                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textPrimary)
-            }
-
-            T3CopyButton(command: hex, label: "")
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(t3CardBackground)
-    }
-
-    // MARK: - Notifications Pane
-    private var notificationsPane: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            // Section Header
-            VStack(alignment: .leading, spacing: 4) {
-                Text("// NATIVE MAC NOTIFICATIONS")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.accent)
-
-                Text("Configure native macOS system alerts for critical quota thresholds and scheduled reset events.")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Master Switch Card
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(settings.notificationsEnabled ? settings.currentTheme.accent.opacity(0.15) : Color.white.opacity(0.04))
-                            .frame(width: 32, height: 32)
-                        Image(systemName: settings.notificationsEnabled ? "bell.badge.fill" : "bell.slash")
-                            .font(.system(size: 14))
-                            .foregroundStyle(settings.notificationsEnabled ? settings.currentTheme.accent : settings.currentTheme.textMuted)
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Enable System Notifications")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textPrimary)
-                        Text("Deliver banners and sounds when quotas drop or recover")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: $settings.notificationsEnabled)
-                        .toggleStyle(.switch)
-                        .scaleEffect(0.8)
-                }
-                .padding(14)
-            }
-            .background(t3CardBackground)
-
-            if settings.notificationsEnabled {
-                // Critical Quota Alert Configuration
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(settings.currentTheme.red)
-                        Text("CRITICAL QUOTA ALERTS")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                    }
-
-                    // Toggle for critical alert
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Alert on Low Quota")
-                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textPrimary)
-                            Text("Notify when any model or profile drops to or below the threshold")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textMuted)
-                        }
-                        Spacer()
-                        Toggle("", isOn: $settings.notifyOnCritical)
-                            .toggleStyle(.switch)
-                            .scaleEffect(0.8)
-                    }
-
-                    if settings.notifyOnCritical {
-                        Rectangle()
-                            .fill(settings.currentTheme.border)
-                            .frame(height: 1)
-
-                        // Threshold Selector
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("Alert Threshold:")
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(settings.currentTheme.textSecondary)
-                                Text("≤ \(settings.criticalThresholdPercent)%")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(settings.currentTheme.red)
-                                Spacer()
-                            }
-
-                            HStack(spacing: 8) {
-                                ForEach([5, 10, 15, 20, 25], id: \.self) { val in
-                                    let isSelected = settings.criticalThresholdPercent == val
-                                    Button {
-                                        withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
-                                            settings.criticalThresholdPercent = val
-                                        }
-                                    } label: {
-                                        Text("\(val)%")
-                                            .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
-                                            .foregroundStyle(isSelected ? Color.white : settings.currentTheme.textSecondary)
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 6)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                                    .fill(isSelected ? settings.currentTheme.accent : Color.white.opacity(0.04))
-                                            )
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                                    .stroke(isSelected ? settings.currentTheme.accent : settings.currentTheme.border, lineWidth: 1)
-                                            )
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(14)
-                .background(t3CardBackground)
-
-                // Quota Restored & Sound Configuration
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(settings.currentTheme.green)
-                        Text("RESTORATION & SOUND")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                    }
-
-                    // Reset alert toggle
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Alert on Quota Reset")
-                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textPrimary)
-                            Text("Notify when quota counter resets and usage capacity is restored")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textMuted)
-                        }
-                        Spacer()
-                        Toggle("", isOn: $settings.notifyOnReset)
-                            .toggleStyle(.switch)
-                            .scaleEffect(0.8)
-                    }
-
-                    Rectangle()
-                        .fill(settings.currentTheme.border)
-                        .frame(height: 1)
-
-                    // Sound toggle
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Play System Sound")
-                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textPrimary)
-                            Text("Play the default macOS alert sound with notifications")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(settings.currentTheme.textMuted)
-                        }
-                        Spacer()
-                        Toggle("", isOn: $settings.notificationSoundEnabled)
-                            .toggleStyle(.switch)
-                            .scaleEffect(0.8)
-                    }
-                }
-                .padding(14)
-                .background(t3CardBackground)
-
-                // Test Delivery Card
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Test Native Delivery")
-                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textPrimary)
-                        Text("Dispatch a sample alert to verify macOS banner and sound")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                    }
-                    Spacer()
-                    Button {
-                        NotificationManager.shared.sendTestNotification()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "paperplane.fill")
-                                .font(.system(size: 9))
-                            Text("send test")
-                                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
-                .padding(14)
-                .background(t3CardBackground)
-            }
-        }
-    }
-
-    // MARK: - Profiles Pane
-    private var profilesPane: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("// CODEX PROFILES")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.cyan)
-
-                Text("Configure home directories for each Codex CLI profile.")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-            }
-
-            VStack(spacing: 0) {
+    private var profilePreferences: some View {
+        Form {
+            Section("Codex profiles") {
                 if settings.codexProfiles.isEmpty {
-                    Text("No profiles configured.")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 24)
-                } else {
-                    ForEach(Array(settings.codexProfiles.enumerated()), id: \.element.id) { index, profile in
-                        VStack(spacing: 0) {
-                            HStack(alignment: .center, spacing: 10) {
-                                Text("$")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(settings.currentTheme.cyan)
-
-                                if editingID == profile.id {
-                                    HStack(spacing: 6) {
-                                        TextField("Profile Name", text: $editName)
-                                            .textFieldStyle(.roundedBorder)
-                                            .font(.system(size: 11, design: .monospaced))
-                                        Button("save") {
-                                            settings.renameProfile(id: profile.id, newName: editName)
-                                            editingID = nil
-                                        }
-                                        .buttonStyle(.borderedProminent)
-                                        .controlSize(.small)
-                                        Button("cancel") {
-                                            editingID = nil
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-                                    }
-                                } else {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(profile.name)
-                                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                            .foregroundStyle(settings.currentTheme.textPrimary)
-                                        Text(profile.homePath ?? "~/.codex")
-                                            .font(.system(size: 10, design: .monospaced))
-                                            .foregroundStyle(settings.currentTheme.textMuted)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
-                                    }
-
-                                    Spacer()
-
-                                    HStack(spacing: 8) {
-                                        Button {
-                                            editingID = profile.id
-                                            editName = profile.name
-                                        } label: {
-                                            Text("edit")
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundStyle(settings.currentTheme.textSecondary)
-                                        }
-                                        .buttonStyle(.borderless)
-
-                                        Button {
-                                            settings.removeProfile(id: profile.id)
-                                        } label: {
-                                            Text("del")
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundStyle(settings.currentTheme.red)
-                                        }
-                                        .buttonStyle(.borderless)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-
-                            if index < settings.codexProfiles.count - 1 {
-                                Rectangle()
-                                    .fill(settings.currentTheme.border)
-                                    .frame(height: 1)
-                            }
+                    Text("No profiles configured.").foregroundStyle(.secondary)
+                }
+                ForEach(settings.codexProfiles) { profile in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(profile.name)
+                            Text(profile.homePath ?? "No CODEX_HOME path")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
-                    }
-                }
-            }
-            .background(t3CardBackground)
-        }
-    }
-
-    // MARK: - Executables Pane
-    private var executablesPane: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("// EXECUTABLES OVERRIDE")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-
-                Text("Specify custom executable paths if not located in standard PATH.")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-            }
-
-            VStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("codex cli")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textPrimary)
                         Spacer()
-                        Text("default: /opt/homebrew/bin/codex")
-                            .font(.system(size: 9.5, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
+                        Button("Remove", role: .destructive) {
+                            settings.removeProfile(id: profile.id)
+                        }
+                        .controlSize(.small)
                     }
-                    TextField("auto-detect", text: $settings.codexExecutableOverride)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 10.5, design: .monospaced))
                 }
-
-                Rectangle()
-                    .fill(settings.currentTheme.border)
-                    .frame(height: 1)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("antigravity cli (agy)")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textPrimary)
-                        Spacer()
-                        Text("default: ~/.local/bin/agy")
-                            .font(.system(size: 9.5, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                    }
-                    TextField("auto-detect", text: $settings.antigravityExecutableOverride)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 10.5, design: .monospaced))
+                Button {
+                    addProfileFromFolderPicker()
+                } label: {
+                    Label("Add Profile…", systemImage: "plus")
                 }
             }
-            .padding(14)
-            .background(t3CardBackground)
+            Section {
+                Text("SeeUsage reads usage from each selected Codex home. Your credentials stay in the Codex configuration folders.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+        .formStyle(.grouped)
+        .tabItem { Label("Profiles", systemImage: "person.crop.circle") }
     }
 
-    // MARK: - Sync Pane
-    private var syncPane: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("// SYNC INTERVAL")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-
-                Text("Background quota polling frequency.")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-            }
-
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("polling rate limit:")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-                    Text("Automatically refresh metrics in the background.")
-                        .font(.system(size: 9.5, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                }
-                Spacer()
-                Picker("", selection: $settings.refreshIntervalMinutes) {
-                    Text("5m").tag(5)
-                    Text("10m").tag(10)
-                    Text("15m").tag(15)
-                    Text("30m").tag(30)
-                }
-                .pickerStyle(.menu)
-                .frame(width: 100)
-            }
-            .padding(14)
-            .background(t3CardBackground)
-        }
-    }
-
-    // MARK: - About Pane
-    private var aboutPane: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("// ABOUT SEEUSAGE")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.green)
-
-                Text("Rate limit and quota monitor for Codex and Antigravity.")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textSecondary)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("// CLI COMMANDS QUICK REFERENCE")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textMuted)
-
-                HStack {
-                    Text("$ seeusage")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-                    Spacer()
-                    T3CopyButton(command: "seeusage", label: "copy")
-                }
-
-                HStack {
-                    Text("$ seeusage watch")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-                    Spacer()
-                    T3CopyButton(command: "seeusage watch", label: "copy")
-                }
-
-                HStack {
-                    Text("$ seeusage mode")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-                    Spacer()
-                    T3CopyButton(command: "seeusage mode", label: "copy")
-                }
-
-                HStack {
-                    Text("$ seeusage --json")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-                    Spacer()
-                    T3CopyButton(command: "seeusage --json", label: "copy")
-                }
-
-                HStack {
-                    Text("$ seeusage prompt")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-                    Spacer()
-                    T3CopyButton(command: "seeusage prompt", label: "copy")
-                }
-
-                HStack {
-                    Text("$ agy -p \"/usage\"")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-                    Spacer()
-                    T3CopyButton(command: "agy -p \"/usage\"", label: "copy")
-                }
-            }
-            .padding(14)
-            .background(t3CardBackground)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("SeeUsage v1.1.0 // Minimal Dark Terminal Design System")
-                    .font(.system(size: 9.5, design: .monospaced))
-                    .foregroundStyle(settings.currentTheme.textMuted)
-            }
-            .padding(.top, 8)
-        }
-    }
-
-    private func chooseCodexHome() {
+    private func addProfileFromFolderPicker() {
         let panel = NSOpenPanel()
+        panel.title = "Choose a Codex profile folder"
+        panel.message = "Select a folder containing Codex account data."
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-        panel.prompt = "Select"
-        panel.message = "Choose CODEX_HOME directory (e.g. ~/.codex-profiles/...)"
-
-        if panel.runModal() == .OK, let url = panel.url {
-            let path = url.path
-            let name = url.lastPathComponent.capitalized
-            settings.addProfile(name: name, path: path)
-        }
-    }
-}
-
-// MARK: - Theme Card View
-struct ThemeCardView: View {
-    let theme: AppTheme
-    let isSelected: Bool
-    let onSelect: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 0) {
-                // Mock Mini App Window Container
-                ZStack(alignment: .topLeading) {
-                    theme.background
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        // Traffic light header
-                        HStack(spacing: 4) {
-                            Circle().fill(Color(red: 1.0, green: 0.37, blue: 0.34)).frame(width: 5.5, height: 5.5)
-                            Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.18)).frame(width: 5.5, height: 5.5)
-                            Circle().fill(Color(red: 0.15, green: 0.79, blue: 0.25)).frame(width: 5.5, height: 5.5)
-
-                            Spacer()
-
-                            // Mini Tag
-                            Text(theme.category == "Core Themes" ? "core" : "ext")
-                                .font(.system(size: 7.5, weight: .bold, design: .monospaced))
-                                .foregroundStyle(theme.textMuted)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.top, 6)
-
-                        // Mini terminal prompt & quota card preview
-                        HStack(spacing: 6) {
-                            // Mini card preview
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 3) {
-                                    Text("$")
-                                        .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(theme.cyan)
-                                    Text("seeusage")
-                                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                                        .foregroundStyle(theme.textPrimary)
-                                }
-
-                                // Mini progress bar in theme colors
-                                ZStack(alignment: .leading) {
-                                    RoundedRectangle(cornerRadius: 1.5)
-                                        .fill(Color.white.opacity(0.08))
-                                        .frame(height: 3.5)
-                                    RoundedRectangle(cornerRadius: 1.5)
-                                        .fill(theme.accent)
-                                        .frame(width: 48, height: 3.5)
-                                }
-                            }
-                            .padding(5)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(theme.surface)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .stroke(theme.border, lineWidth: 0.5)
-                                    )
-                            )
-
-                            Spacer()
-
-                            // 3 Palette Swatch Circles
-                            HStack(spacing: -4) {
-                                Circle()
-                                    .fill(theme.background)
-                                    .frame(width: 14, height: 14)
-                                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.8))
-                                Circle()
-                                    .fill(theme.surface)
-                                    .frame(width: 14, height: 14)
-                                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.8))
-                                Circle()
-                                    .fill(theme.accent)
-                                    .frame(width: 14, height: 14)
-                                    .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.8))
-                            }
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 6)
-                    }
-                }
-                .frame(height: 56)
-
-                Rectangle()
-                    .fill(theme.border)
-                    .frame(height: 1)
-
-                // Card Footer with Details
-                HStack(alignment: .center, spacing: 6) {
-                    VStack(alignment: .leading, spacing: 1.5) {
-                        Text(theme.name)
-                            .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                            .foregroundStyle(theme.textPrimary)
-
-                        Text(theme.tagline)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(theme.textMuted)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    // Selection Status Badge
-                    if isSelected {
-                        HStack(spacing: 3) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 9, weight: .bold))
-                            Text("active")
-                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        }
-                        .foregroundStyle(theme.accent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2.5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3.5, style: .continuous)
-                                .fill(theme.accent.opacity(0.14))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 3.5, style: .continuous)
-                                        .stroke(theme.accent.opacity(0.3), lineWidth: 1)
-                                )
-                        )
-                    } else if isHovered {
-                        Text("apply →")
-                            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                            .foregroundStyle(theme.accent)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(theme.surface)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(
-                        isSelected ? theme.accent : (isHovered ? theme.borderActive : theme.border),
-                        lineWidth: isSelected ? 1.5 : 1
-                    )
-            )
-            .shadow(color: isSelected ? theme.accent.opacity(0.12) : Color.clear, radius: 4)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-}
-
-// MARK: - Formatters
-public enum Formatters {
-    public static func timeOnly(for date: Date) -> String {
-        let df = DateFormatter()
-        df.dateFormat = "HH:mm"
-        return df.string(from: date)
-    }
-
-    public static func resetDescription(for date: Date) -> String {
-        let now = Date()
-        let interval = date.timeIntervalSince(now)
-        if interval <= 0 {
-            return "resets now"
-        }
-        let minutes = Int(ceil(interval / 60.0))
-        if minutes < 60 {
-            return "in \(minutes)m"
-        }
-        let hours = minutes / 60
-        let remMinutes = minutes % 60
-        if hours < 12 {
-            if remMinutes == 0 {
-                return "in \(hours)h"
-            } else {
-                return "in \(hours)h \(remMinutes)m"
-            }
-        }
-
-        let calendar = Calendar.current
-        let timeFormatter = DateFormatter()
-        timeFormatter.dateFormat = "HH:mm"
-        let timeStr = timeFormatter.string(from: date)
-
-        if calendar.isDateInToday(date) {
-            return "today at \(timeStr)"
-        }
-        if calendar.isDateInTomorrow(date) {
-            return "tomorrow at \(timeStr)"
-        }
-
-        let weekdayFormatter = DateFormatter()
-        weekdayFormatter.locale = Locale(identifier: "en_US")
-        weekdayFormatter.dateFormat = "EEE"
-        let weekday = weekdayFormatter.string(from: date).lowercased()
-        return "\(weekday) at \(timeStr)"
-    }
-
-    public static func relativeUpdated(for date: Date?) -> String {
-        guard let date = date else { return "never updated" }
-        let seconds = Int(Date().timeIntervalSince(date))
-        if seconds < 60 {
-            return "just now"
-        }
-        let minutes = seconds / 60
-        if minutes == 1 {
-            return "1m ago"
-        }
-        return "\(minutes)m ago"
-    }
-}
-
-
-// MARK: - Menu Bar Mode Card View
-public struct MenuBarModeCard: View {
-    @Bindable var settings = SettingsStore.shared
-    let mode: MenuBarDisplayMode
-    let isSelected: Bool
-    let onSelect: () -> Void
-    @State private var isHovered = false
-
-    public var body: some View {
-        Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(isSelected ? settings.currentTheme.accent.opacity(0.16) : settings.currentTheme.surfaceHover)
-                            .frame(width: 28, height: 28)
-
-                        modeIcon(for: mode)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textSecondary)
-                    }
-
-                    Spacer()
-
-                    ZStack {
-                        Circle()
-                            .stroke(isSelected ? settings.currentTheme.accent : settings.currentTheme.borderActive, lineWidth: 1.2)
-                            .frame(width: 15, height: 15)
-
-                        if isSelected {
-                            Circle()
-                                .fill(settings.currentTheme.accent)
-                                .frame(width: 7.5, height: 7.5)
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(mode.title)
-                        .font(.system(size: 11.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-
-                    Text(mode.subtitle)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                HStack(spacing: 4) {
-                    Text("Sample:")
-                        .font(.system(size: 8.5, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textMuted)
-
-                    Text(sampleText(for: mode))
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(isSelected ? settings.currentTheme.accent : settings.currentTheme.textSecondary)
-                }
-                .padding(.top, 2)
-            }
-            .padding(12)
-            .background(isSelected ? settings.currentTheme.surfaceHover : settings.currentTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(
-                        isSelected ? settings.currentTheme.accent : (isHovered ? settings.currentTheme.borderActive : settings.currentTheme.border),
-                        lineWidth: isSelected ? 1.5 : 1
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-
-    @ViewBuilder
-    private func modeIcon(for mode: MenuBarDisplayMode) -> some View {
-        switch mode {
-        case .percent:
-            Image(systemName: "gauge.with.needle")
-        case .dual:
-            Image(systemName: "bolt.horizontal.fill")
-        case .gauge:
-            Image(systemName: "chart.bar.xaxis")
-        case .iconOnly:
-            Image(systemName: "circle.fill")
-        }
-    }
-
-    private func sampleText(for mode: MenuBarDisplayMode) -> String {
-        switch mode {
-        case .percent: return "⚡ 47%"
-        case .dual: return "cx: 92% · ag: 81%"
-        case .gauge: return "■■■□ 47%"
-        case .iconOnly: return "●"
-        }
-    }
-}
-
-// MARK: - Banked Reset Banner View
-struct BankedResetBannerView: View {
-    let profile: UsageProfile
-    let credit: BankedResetCredit
-    var settings: SettingsStore { SettingsStore.shared }
-    var store: UsageStore { UsageStore.shared }
-
-    @State private var showingConfirm = false
-    @State private var isActivating = false
-    @State private var resultMessage: String?
-    @State private var showingResult = false
-
-    private var planName: String {
-        if let p = store.snapshots[profile.id]?.plan, !p.isEmpty {
-            return p.capitalized
-        }
-        return "Plus"
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(settings.currentTheme.amber)
-                .frame(width: 14)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(profile.name)
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.textPrimary)
-                        .lineLimit(1)
-
-                    Text("[\(planName)]")
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.cyan)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(settings.currentTheme.cyan.opacity(0.12))
-                        .cornerRadius(3)
-
-                    Text("• 1 RESET")
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(settings.currentTheme.amber)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 4) {
-                    if let title = credit.title {
-                        Text(title)
-                            .font(.system(size: 8.5, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-
-                    if let exp = credit.expiresAt {
-                        Text("• expira \(Formatters.resetDescription(for: exp).lowercased())")
-                            .font(.system(size: 8.5, design: .monospaced))
-                            .foregroundStyle(settings.currentTheme.textMuted)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if isActivating {
-                ProgressView()
-                    .scaleEffect(0.5)
-                    .frame(width: 46)
-            } else {
-                Button {
-                    showingConfirm = true
-                } label: {
-                    Text("ATIVAR")
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color.black)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(settings.currentTheme.amber)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(settings.currentTheme.amber.opacity(0.12))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(settings.currentTheme.amber.opacity(0.35), lineWidth: 1)
-        )
-        .confirmationDialog(
-            "Ativar Banked Reset para \(profile.name) [\(planName)]?",
-            isPresented: $showingConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Confirmar e Restaurar Quotas") {
-                Task {
-                    isActivating = true
-                    let res = await store.consumeBankedReset(for: profile, creditId: credit.id)
-                    isActivating = false
-                    resultMessage = res.message
-                    showingResult = true
-                }
-            }
-            Button("Cancelar", role: .cancel) {}
-        } message: {
-            Text("Esta ação irá consumir 1 crédito de reset do plano \(planName) e restaurar imediatamente as quotas a 100%.")
-        }
-        .alert("Banked Reset", isPresented: $showingResult) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(resultMessage ?? "")
-        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        settings.addProfile(name: url.lastPathComponent.capitalized, path: url.path)
     }
 }

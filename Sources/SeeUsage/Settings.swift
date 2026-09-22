@@ -258,8 +258,7 @@ public final class SettingsStore {
 
         let profileData = prefs.data(forKey: "codexProfiles") ?? fallback.data(forKey: "codexProfiles")
         if let data = profileData,
-           let profiles = try? JSONDecoder().decode([UsageProfile].self, from: data),
-           !profiles.isEmpty {
+           let profiles = try? JSONDecoder().decode([UsageProfile].self, from: data) {
             self.codexProfiles = profiles
         } else {
             self.codexProfiles = Self.discoverCodexProfiles()
@@ -384,39 +383,34 @@ public final class SettingsStore {
     public static func discoverCodexProfiles() -> [UsageProfile] {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.path
-        let baseDir = "\(home)/.codex-profiles"
-        var discovered: [UsageProfile] = []
+        let defaultCodex = "\(home)/.codex"
+        var paths: [(String, String)] = []
 
-        if let items = try? fm.contentsOfDirectory(atPath: baseDir) {
+        if fm.fileExists(atPath: defaultCodex), isCodexHome(path: defaultCodex) {
+            paths.append(("Main", defaultCodex))
+        }
+
+        let profilesDir = "\(home)/.codex-profiles"
+        if let items = try? fm.contentsOfDirectory(atPath: profilesDir) {
             for item in items.sorted() {
-                let fullPath = "\(baseDir)/\(item)"
+                let fullPath = "\(profilesDir)/\(item)"
                 var isDir: ObjCBool = false
-                if fm.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue {
-                    if isCodexHome(path: fullPath) {
-                        discovered.append(UsageProfile(
-                            id: UUIDHelper.deterministic(for: "codex:\(fullPath)"),
-                            provider: .codex,
-                            name: item.capitalized,
-                            homePath: fullPath
-                        ))
-                    }
+                if fm.fileExists(atPath: fullPath, isDirectory: &isDir),
+                   isDir.boolValue,
+                   isCodexHome(path: fullPath) {
+                    paths.append((item.capitalized, fullPath))
                 }
             }
         }
 
-        if discovered.isEmpty {
-            let defaultCodex = "\(home)/.codex"
-            if fm.fileExists(atPath: defaultCodex) && isCodexHome(path: defaultCodex) {
-                discovered.append(UsageProfile(
-                    id: UUIDHelper.deterministic(for: "codex:\(defaultCodex)"),
-                    provider: .codex,
-                    name: "Main",
-                    homePath: defaultCodex
-                ))
-            }
+        return paths.map { name, path in
+            UsageProfile(
+                id: UUIDHelper.deterministic(for: "codex:\(path)"),
+                provider: .codex,
+                name: name,
+                homePath: path
+            )
         }
-
-        return discovered
     }
 
     private static func isCodexHome(path: String) -> Bool {

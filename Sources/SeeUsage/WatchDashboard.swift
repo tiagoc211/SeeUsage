@@ -100,7 +100,7 @@ public enum WatchDashboard {
                         statusNotice = "Activating banked reset for \(pName) [\(planName)]..."
                         noticeUntil = Date().addingTimeInterval(3.0)
                         Task {
-                            let res = await store.consumeBankedReset(for: first.profile, creditId: first.credit.id)
+                            let res = await store.consumeBankedReset(for: first.profile, creditId: first.credit.serverCreditID)
                             isRefreshing = false
                             statusNotice = res.success ? "⚡ Reset activated! Quota restored to 100%" : "✗ \(res.message)"
                             noticeUntil = Date().addingTimeInterval(3.5)

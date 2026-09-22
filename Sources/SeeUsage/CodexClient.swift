@@ -13,20 +13,16 @@ public enum CodexClient {
             )
         }
 
-        let requests = [
-            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"SeeUsage","version":"1.0.0"}}}"#,
-            #"{"jsonrpc":"2.0","method":"initialized","params":{}}"#,
-            #"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{}}"#
-        ].joined(separator: "\n") + "\n"
+        let requests = makeInputLines(method: "account/rateLimits/read", requestID: 2, params: [:])
 
         do {
             let result = try await ProcessRunner.run(
                 executable: executable,
                 arguments: ["app-server", "--stdio"],
                 environment: ["CODEX_HOME": (homePath as NSString).expandingTildeInPath],
-                input: Data(requests.utf8),
+                input: requests,
                 timeout: timeout,
-                completionMarker: #""id":2"#
+                completionResponseID: 2
             )
 
             guard result.terminationStatus == 0 || !result.standardOutput.isEmpty else {
@@ -66,47 +62,43 @@ public enum CodexClient {
                 return UsageSnapshot(profileID: profileID, error: "Unexpected response from Codex.")
             }
 
-            var limitDict: [String: Any]? = result["rateLimits"] as? [String: Any]
-            if limitDict == nil, let byID = result["rateLimitsByLimitId"] as? [String: Any] {
-                limitDict = (byID["codex"] as? [String: Any]) ?? byID.values.compactMap { $0 as? [String: Any] }.first
-            }
-
-            guard let limits = limitDict else {
+            let limitBuckets: [(String, [String: Any])]
+            if let byID = result["rateLimitsByLimitId"] as? [String: Any], !byID.isEmpty {
+                limitBuckets = byID.keys.sorted().compactMap { key in
+                    (byID[key] as? [String: Any]).map { (key, $0) }
+                }
+            } else if let limits = result["rateLimits"] as? [String: Any] {
+                limitBuckets = [("codex", limits)]
+            } else {
                 return UsageSnapshot(profileID: profileID, error: "Codex profile not authenticated.")
             }
 
-            let rawPlan = limits["planType"] as? String
+            let rawPlan = limitBuckets.compactMap { $0.1["planType"] as? String }.first
             let plan = rawPlan.map { $0.capitalized }
 
             var windows: [UsageWindow] = []
-            var seenDurations = Set<Int>()
+            for (bucketID, limits) in limitBuckets {
+                for windowKey in ["primary", "secondary"] {
+                    guard let obj = limits[windowKey] as? [String: Any],
+                          let usedNum = (obj["usedPercent"] as? NSNumber)?.doubleValue,
+                          let duration = (obj["windowDurationMins"] as? NSNumber)?.intValue
+                    else { continue }
 
-            func addWindow(key: String, object: [String: Any]?) {
-                guard let obj = object,
-                      let usedNum = (obj["usedPercent"] as? NSNumber)?.doubleValue,
-                      let duration = (obj["windowDurationMins"] as? NSNumber)?.intValue,
-                      seenDurations.insert(duration).inserted
-                else { return }
-
-                let clampedRemaining = max(0.0, min(100.0, 100.0 - usedNum))
-                let label = formatDuration(minutes: duration)
-
-                var resetsAt: Date?
-                if let resetSeconds = (obj["resetsAt"] as? NSNumber)?.doubleValue, resetSeconds > 0 {
-                    resetsAt = Date(timeIntervalSince1970: resetSeconds)
+                    let remaining = max(0.0, min(100.0, 100.0 - usedNum))
+                    let resetDate = (obj["resetsAt"] as? NSNumber).flatMap { value in
+                        value.doubleValue > 0 ? Date(timeIntervalSince1970: value.doubleValue) : nil
+                    }
+                    let hasMultipleBuckets = limitBuckets.count > 1 || bucketID != "codex"
+                    windows.append(UsageWindow(
+                        id: "codex-\(bucketID)-\(windowKey)-\(duration)",
+                        label: formatDuration(minutes: duration),
+                        remainingPercent: remaining,
+                        durationMinutes: duration,
+                        resetsAt: resetDate,
+                        scope: hasMultipleBuckets ? bucketID : nil
+                    ))
                 }
-
-                windows.append(UsageWindow(
-                    id: "codex-\(key)-\(duration)",
-                    label: label,
-                    remainingPercent: clampedRemaining,
-                    durationMinutes: duration,
-                    resetsAt: resetsAt
-                ))
             }
-
-            addWindow(key: "primary", object: limits["primary"] as? [String: Any])
-            addWindow(key: "secondary", object: limits["secondary"] as? [String: Any])
 
             // Sort windows by duration (e.g. 5h before 7 dias)
             windows.sort { ($0.durationMinutes ?? 0) < ($1.durationMinutes ?? 0) }
@@ -116,7 +108,7 @@ public enum CodexClient {
             var bankedCredits: [BankedResetCredit] = []
 
             let resetCreditsObj = (result["rateLimitResetCredits"] as? [String: Any])
-                ?? (limits["rateLimitResetCredits"] as? [String: Any])
+                ?? limitBuckets.compactMap { $0.1["rateLimitResetCredits"] as? [String: Any] }.first
 
             if let rco = resetCreditsObj {
                 if let countNum = (rco["availableCount"] as? NSNumber)?.intValue {
@@ -126,8 +118,8 @@ public enum CodexClient {
                 }
 
                 if let rawList = rco["credits"] as? [[String: Any]] {
-                    for item in rawList {
-                        guard let creditId = item["id"] as? String else { continue }
+                    for (index, item) in rawList.enumerated() {
+                        let creditId = item["id"] as? String
                         let resetType = item["resetType"] as? String
                         let status = item["status"] as? String ?? "available"
                         let title = item["title"] as? String
@@ -144,7 +136,8 @@ public enum CodexClient {
                         }
 
                         bankedCredits.append(BankedResetCredit(
-                            id: creditId,
+                            id: creditId ?? "count-only-\(profileID.uuidString)-\(index)",
+                            serverCreditID: creditId,
                             resetType: resetType,
                             status: status,
                             title: title,
@@ -153,6 +146,21 @@ public enum CodexClient {
                             expiresAt: expiresDate
                         ))
                     }
+                }
+            }
+
+            // The server can redact or cap the detailed list while still returning the
+            // account's full available count. Add actionable count-only entries; the
+            // protocol permits consuming without a creditId.
+            let availableDetails = bankedCredits.filter { $0.status.lowercased() == "available" }.count
+            availableCreditsCount = max(availableCreditsCount, availableDetails)
+            if availableCreditsCount > availableDetails {
+                for index in availableDetails..<availableCreditsCount {
+                    bankedCredits.append(BankedResetCredit(
+                        id: "count-only-\(profileID.uuidString)-\(bankedCredits.count)-\(index)",
+                        serverCreditID: nil,
+                        title: "Available reset credit"
+                    ))
                 }
             }
 
@@ -199,7 +207,7 @@ public enum CodexClient {
     // MARK: - Consume Banked Reset Credit
     public static func consumeResetCredit(
         profile: UsageProfile,
-        creditId: String,
+        creditId: String?,
         executable: String,
         timeout: TimeInterval = 15
     ) async -> (success: Bool, message: String) {
@@ -207,21 +215,18 @@ public enum CodexClient {
             return (false, "CODEX_HOME path not configured.")
         }
 
-        let idempotencyKey = UUID().uuidString
-        let requests = [
-            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"SeeUsage","version":"1.0.0"}}}"#,
-            #"{"jsonrpc":"2.0","method":"initialized","params":{}}"#,
-            #"{"jsonrpc":"2.0","id":3,"method":"account/rateLimitResetCredit/consume","params":{"creditId":"\#(creditId)","idempotencyKey":"\#(idempotencyKey)"}}"#
-        ].joined(separator: "\n") + "\n"
+        var params: [String: Any] = ["idempotencyKey": UUID().uuidString]
+        if let creditId { params["creditId"] = creditId }
+        let requests = makeInputLines(method: "account/rateLimitResetCredit/consume", requestID: 3, params: params)
 
         do {
             let result = try await ProcessRunner.run(
                 executable: executable,
                 arguments: ["app-server", "--stdio"],
                 environment: ["CODEX_HOME": (homePath as NSString).expandingTildeInPath],
-                input: Data(requests.utf8),
+                input: requests,
                 timeout: timeout,
-                completionMarker: #""id":3"#
+                completionResponseID: 3
             )
 
             let text = String(decoding: result.standardOutput, as: UTF8.self)
@@ -241,17 +246,19 @@ public enum CodexClient {
                 }
 
                 if let res = json["result"] as? [String: Any] {
-                    let outcome = res["outcome"] as? String ?? "reset"
-                    if outcome == "reset" || outcome == "success" {
+                    guard let outcome = res["outcome"] as? String else {
+                        return (false, "Codex returned a consume response without an outcome.")
+                    }
+                    if outcome == "reset" {
                         return (true, "Banked reset successfully activated! Your quotas are fully restored.")
                     } else if outcome == "nothingToReset" {
                         return (false, "Your quotas are already at 100%. Nothing to reset.")
                     } else if outcome == "alreadyRedeemed" {
-                        return (false, "This reset credit was already redeemed.")
+                        return (true, "This reset credit was already redeemed. Refreshing account usage.")
                     } else if outcome == "noCredit" {
                         return (false, "No available reset credit found on this account.")
                     } else {
-                        return (true, "Banked reset redeemed (outcome: \(outcome)).")
+                        return (false, "Codex did not confirm a reset (outcome: \(outcome)).")
                     }
                 }
             }
@@ -260,5 +267,22 @@ public enum CodexClient {
         } catch {
             return (false, error.localizedDescription)
         }
+    }
+
+    private static func makeInputLines(method: String, requestID: Int, params: [String: Any]) -> Data {
+        let messages: [[String: Any]] = [
+            ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": [
+                "clientInfo": ["name": "SeeUsage", "version": "1.0.0"]
+            ]],
+            ["jsonrpc": "2.0", "method": "initialized", "params": [:]],
+            ["jsonrpc": "2.0", "id": requestID, "method": method, "params": params]
+        ]
+        let lines = messages.compactMap { message -> String? in
+            guard let data = try? JSONSerialization.data(withJSONObject: message, options: [.sortedKeys]) else {
+                return nil
+            }
+            return String(decoding: data, as: UTF8.self)
+        }
+        return Data((lines.joined(separator: "\n") + "\n").utf8)
     }
 }

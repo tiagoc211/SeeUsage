@@ -3,7 +3,7 @@ import Observation
 
 // MARK: - Quota Sample Record
 public struct QuotaSampleRecord: Codable, Sendable, Identifiable {
-    public var id: String { "\(timestamp.timeIntervalSince1970)-\(profileID.uuidString)-\(scope ?? "")-\(windowLabel)" }
+    public var id: String { "\(profileID.uuidString)-\(scope ?? "")-\(windowLabel)" }
     public let timestamp: Date
     public let profileID: UUID
     public let profileName: String
@@ -56,7 +56,7 @@ public struct DailyConsumption: Identifiable, Sendable {
 }
 
 public struct ProfileUsageSummary: Identifiable, Sendable {
-    public var id: String { name }
+    public let id: String
     public let name: String
     public let service: String
     public let totalConsumption: Double
@@ -163,7 +163,7 @@ public final class AnalyticsManager {
         var records: [QuotaSampleRecord] = []
         let now = Date()
 
-        for (profileID, snapshot) in usageSnapshots {
+        for (profileID, snapshot) in usageSnapshots where snapshot.error == nil && !snapshot.isStale {
             let profileName: String
             let service: String
 
@@ -207,23 +207,16 @@ public final class AnalyticsManager {
                 let key = "\(newRecord.profileID.uuidString):\(newRecord.scope ?? ""):\(newRecord.windowLabel)"
                 guard let oldRecord = lastRecordsMap[key] else { continue }
 
-                var isReset = false
-
-                // Condition 1: Old reset deadline has passed or new reset deadline has advanced
+                guard newRecord.remainingPercent > oldRecord.remainingPercent else { continue }
+                let resetCycleAdvanced: Bool
                 if let oldReset = oldRecord.resetsAt {
-                    let passedOldReset = oldReset <= now
-                    let cycleAdvanced = newRecord.resetsAt != nil && newRecord.resetsAt!.timeIntervalSince(oldReset) > 60.0
-                    if (passedOldReset || cycleAdvanced) && (newRecord.remainingPercent > oldRecord.remainingPercent || newRecord.remainingPercent >= 95.0) {
-                        isReset = true
-                    }
+                    let deadlineAdvanced = newRecord.resetsAt.map { $0.timeIntervalSince(oldReset) > 60 } ?? false
+                    resetCycleAdvanced = oldReset <= now || deadlineAdvanced
+                } else {
+                    resetCycleAdvanced = false
                 }
 
-                // Condition 2: Quota increased significantly (at least +10% restoration)
-                if newRecord.remainingPercent >= oldRecord.remainingPercent + 10.0 {
-                    isReset = true
-                }
-
-                if isReset {
+                if resetCycleAdvanced {
                     let win = usageSnapshots[newRecord.profileID]?.windows.first(where: {
                         $0.label == newRecord.windowLabel && $0.scope == newRecord.scope
                     })
@@ -351,189 +344,6 @@ public final class AnalyticsManager {
         return Array(list.prefix(limit))
     }
 
-    // MARK: - Seeding Realistic Demo Data
-    public func seedDemoDataIfEmpty() {
-        guard snapshots.isEmpty else { return }
-
-        var seeded: [QuotaHistorySnapshot] = []
-        let calendar = Calendar.current
-        let now = Date()
-
-        let personalID = SettingsStore.shared.codexProfiles.first?.id ?? UUID()
-        let workID = SettingsStore.shared.codexProfiles.dropFirst().first?.id ?? UUID()
-        let agyID = SettingsStore.antigravityProfileID
-
-        // Generate 7 days of 3-hour interval snapshots
-        for dayOffset in (0...7).reversed() {
-            guard let dayBase = calendar.date(byAdding: .day, value: -dayOffset, to: now) else { continue }
-
-            for hour in stride(from: 8, through: 22, by: 2) {
-                guard let sampleDate = calendar.date(bySettingHour: hour, minute: 15, second: 0, of: dayBase) else { continue }
-                if sampleDate > now { continue }
-
-                // Simulate realistic daily burn
-                let progressInDay = Double(hour - 8) / 14.0
-                let personalPct = max(18.0, 95.0 - (progressInDay * 70.0) + Double.random(in: -3...3))
-                let workPct = max(24.0, 100.0 - (progressInDay * 65.0) + Double.random(in: -4...4))
-                let agyGeminiPct = max(35.0, 90.0 - (progressInDay * 50.0) + Double.random(in: -2...2))
-
-                let records: [QuotaSampleRecord] = [
-                    QuotaSampleRecord(
-                        timestamp: sampleDate,
-                        profileID: personalID,
-                        profileName: "Pessoal",
-                        service: "Codex",
-                        scope: nil,
-                        windowLabel: "5 h",
-                        remainingPercent: personalPct,
-                        resetsAt: sampleDate.addingTimeInterval(3600 * 3)
-                    ),
-                    QuotaSampleRecord(
-                        timestamp: sampleDate,
-                        profileID: workID,
-                        profileName: "Trabalho",
-                        service: "Codex",
-                        scope: nil,
-                        windowLabel: "5 h",
-                        remainingPercent: workPct,
-                        resetsAt: sampleDate.addingTimeInterval(3600 * 2.5)
-                    ),
-                    QuotaSampleRecord(
-                        timestamp: sampleDate,
-                        profileID: agyID,
-                        profileName: "Antigravity",
-                        service: "Antigravity",
-                        scope: "Gemini",
-                        windowLabel: "5 h",
-                        remainingPercent: agyGeminiPct,
-                        resetsAt: sampleDate.addingTimeInterval(3600 * 4)
-                    )
-                ]
-
-                seeded.append(QuotaHistorySnapshot(timestamp: sampleDate, records: records))
-            }
-        }
-
-        self.snapshots = seeded
-        self.lastRecordedAt = seeded.last?.timestamp
-
-        seedDemoResetDataIfEmpty()
-        saveHistory()
-    }
-
-    public func seedDemoResetDataIfEmpty() {
-        guard resetEvents.isEmpty else { return }
-
-        let now = Date()
-        let personalID = SettingsStore.shared.codexProfiles.first?.id ?? UUID()
-        let workID = SettingsStore.shared.codexProfiles.dropFirst().first?.id ?? UUID()
-        let agyID = SettingsStore.antigravityProfileID
-
-        let sampleEvents: [ResetEvent] = [
-            ResetEvent(
-                id: UUID(),
-                timestamp: now.addingTimeInterval(-3600 * 3.5),
-                profileID: personalID,
-                profileName: "Pessoal",
-                service: "Codex",
-                scope: nil,
-                windowLabel: "5 h",
-                durationMinutes: 300,
-                quotaBefore: 18.0,
-                quotaAfter: 100.0,
-                quotaRestored: 82.0,
-                nextResetAt: now.addingTimeInterval(3600 * 1.5)
-            ),
-            ResetEvent(
-                id: UUID(),
-                timestamp: now.addingTimeInterval(-3600 * 8.5),
-                profileID: personalID,
-                profileName: "Pessoal",
-                service: "Codex",
-                scope: nil,
-                windowLabel: "5 h",
-                durationMinutes: 300,
-                quotaBefore: 24.0,
-                quotaAfter: 100.0,
-                quotaRestored: 76.0,
-                nextResetAt: now.addingTimeInterval(-3600 * 3.5)
-            ),
-            ResetEvent(
-                id: UUID(),
-                timestamp: now.addingTimeInterval(-3600 * 12.0),
-                profileID: workID,
-                profileName: "Trabalho",
-                service: "Codex",
-                scope: nil,
-                windowLabel: "5 h",
-                durationMinutes: 300,
-                quotaBefore: 31.0,
-                quotaAfter: 100.0,
-                quotaRestored: 69.0,
-                nextResetAt: now.addingTimeInterval(-3600 * 7.0)
-            ),
-            ResetEvent(
-                id: UUID(),
-                timestamp: now.addingTimeInterval(-3600 * 19.0),
-                profileID: agyID,
-                profileName: "Antigravity",
-                service: "Antigravity",
-                scope: "Gemini",
-                windowLabel: "5 h",
-                durationMinutes: 300,
-                quotaBefore: 42.0,
-                quotaAfter: 100.0,
-                quotaRestored: 58.0,
-                nextResetAt: now.addingTimeInterval(-3600 * 14.0)
-            ),
-            ResetEvent(
-                id: UUID(),
-                timestamp: now.addingTimeInterval(-86400 * 2.1),
-                profileID: personalID,
-                profileName: "Pessoal",
-                service: "Codex",
-                scope: nil,
-                windowLabel: "7 days",
-                durationMinutes: 10080,
-                quotaBefore: 48.0,
-                quotaAfter: 100.0,
-                quotaRestored: 52.0,
-                nextResetAt: now.addingTimeInterval(86400 * 4.9)
-            ),
-            ResetEvent(
-                id: UUID(),
-                timestamp: now.addingTimeInterval(-86400 * 3.2),
-                profileID: workID,
-                profileName: "Trabalho",
-                service: "Codex",
-                scope: nil,
-                windowLabel: "5 h",
-                durationMinutes: 300,
-                quotaBefore: 15.0,
-                quotaAfter: 100.0,
-                quotaRestored: 85.0,
-                nextResetAt: now.addingTimeInterval(-86400 * 3.0)
-            ),
-            ResetEvent(
-                id: UUID(),
-                timestamp: now.addingTimeInterval(-86400 * 4.5),
-                profileID: personalID,
-                profileName: "Pessoal",
-                service: "Codex",
-                scope: nil,
-                windowLabel: "5 h",
-                durationMinutes: 300,
-                quotaBefore: 8.0,
-                quotaAfter: 100.0,
-                quotaRestored: 92.0,
-                nextResetAt: now.addingTimeInterval(-86400 * 4.3)
-            )
-        ]
-
-        self.resetEvents = sampleEvents
-        saveHistory()
-    }
-
     // MARK: - Computations
 
     /// Hourly consumption profile (0h - 23h)
@@ -641,7 +451,7 @@ public final class AnalyticsManager {
 
         guard relevant.count >= 2 else { return [] }
 
-        var profileTotals: [String: (service: String, total: Double)] = [:]
+        var profileTotals: [String: (name: String, service: String, total: Double)] = [:]
 
         for i in 1..<relevant.count {
             let prev = relevant[i - 1]
@@ -664,8 +474,9 @@ public final class AnalyticsManager {
                         } else {
                             displayName = r.profileName
                         }
-                        let current = profileTotals[displayName] ?? (service: r.service, total: 0.0)
-                        profileTotals[displayName] = (service: r.service, total: current.total + consumed)
+                        let summaryID = "\(r.profileID.uuidString):\(r.scope ?? "")"
+                        let current = profileTotals[summaryID] ?? (name: displayName, service: r.service, total: 0.0)
+                        profileTotals[summaryID] = (name: displayName, service: r.service, total: current.total + consumed)
                     }
                 }
             }
@@ -674,9 +485,10 @@ public final class AnalyticsManager {
         let grandTotal = profileTotals.values.reduce(0.0) { $0 + $1.total }
         guard grandTotal > 0 else { return [] }
 
-        return profileTotals.map { name, tuple in
+        return profileTotals.map { id, tuple in
             ProfileUsageSummary(
-                name: name,
+                id: id,
+                name: tuple.name,
                 service: tuple.service,
                 totalConsumption: tuple.total,
                 percentageOfTotal: (tuple.total / grandTotal) * 100.0
@@ -694,7 +506,7 @@ public final class AnalyticsManager {
 
         let peakRangeStr: String
         if let ph = peakHour, ph.consumptionPercent > 0 {
-            let nextHour = (ph.hour + 2) % 24
+            let nextHour = (ph.hour + 1) % 24
             peakRangeStr = String(format: "%02d:00 – %02d:00", ph.hour, nextHour)
         } else {
             peakRangeStr = "N/A"
