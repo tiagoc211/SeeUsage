@@ -198,8 +198,8 @@ public enum WatchDashboard {
         // Terminal width calculation
         var ws = winsize()
         let width: Int
-        if ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 40 {
-            width = max(68, min(96, Int(ws.ws_col) - 2))
+        if ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 {
+            width = max(24, min(96, Int(ws.ws_col) - 2))
         } else {
             width = 76
         }
@@ -340,8 +340,9 @@ public enum WatchDashboard {
     private static func padBoxLine(_ content: String, visibleLength: Int, totalWidth: Int, borderAnsi: String) -> String {
         let maxInner = max(0, totalWidth - 2)
         if visibleLength > maxInner {
-            // Hard clamp visible content to prevent terminal wrap
-            return "\(borderAnsi)│\(content)\u{001B}[0m\(borderAnsi)│\(contentAnsiReset)"
+            let plainText = stripAnsi(content)
+            let clipped = String(plainText.prefix(max(0, maxInner - 1))) + (maxInner > 0 ? "…" : "")
+            return "\(borderAnsi)│\(clipped)\(borderAnsi)│\(contentAnsiReset)"
         }
         let padSpaces = max(0, maxInner - visibleLength)
         return "\(borderAnsi)│\(content)\u{001B}[0m\(String(repeating: " ", count: padSpaces))\(borderAnsi)│\(contentAnsiReset)"

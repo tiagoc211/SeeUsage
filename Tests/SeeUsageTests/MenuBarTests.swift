@@ -39,6 +39,10 @@ final class MenuBarTests: XCTestCase {
 
     @MainActor
     func testCLIHandlerModeCommand() async {
+        let settings = SettingsStore.shared
+        let originalMode = settings.menuBarDisplayMode
+        defer { settings.selectMenuBarMode(originalMode) }
+
         let handledList = await CLIHandler.handle(arguments: ["seeusage", "mode"])
         XCTAssertTrue(handledList)
 
@@ -46,9 +50,8 @@ final class MenuBarTests: XCTestCase {
         XCTAssertTrue(handledSet)
         XCTAssertEqual(SettingsStore.shared.menuBarDisplayMode, .dual)
 
-        // Restore to percent
-        let handledRestore = await CLIHandler.handle(arguments: ["seeusage", "mode", "percent"])
+        let handledRestore = await CLIHandler.handle(arguments: ["seeusage", "mode", originalMode.rawValue])
         XCTAssertTrue(handledRestore)
-        XCTAssertEqual(SettingsStore.shared.menuBarDisplayMode, .percent)
+        XCTAssertEqual(settings.menuBarDisplayMode, originalMode)
     }
 }

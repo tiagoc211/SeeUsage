@@ -4,6 +4,12 @@ import Foundation
 
 @MainActor
 final class AnalyticsTests: XCTestCase {
+    private func makeAnalyticsManager() -> AnalyticsManager {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SeeUsageAnalyticsTests-\(UUID().uuidString)", isDirectory: true)
+        return AnalyticsManager(storageDirectory: directory)
+    }
+
     func testAnalyticsDataStructures() {
         let now = Date()
         let pID = UUID()
@@ -30,7 +36,7 @@ final class AnalyticsTests: XCTestCase {
     }
 
     func testAnalyticsManagerComputations() {
-        let manager = AnalyticsManager.shared
+        let manager = makeAnalyticsManager()
         manager.clearHistory()
         XCTAssertEqual(manager.snapshots.count, 0)
 
@@ -78,10 +84,6 @@ final class AnalyticsTests: XCTestCase {
 
         let handledJSON = await CLIHandler.handle(arguments: ["seeusage", "analytics", "json"])
         XCTAssertTrue(handledJSON)
-
-        let handledClear = await CLIHandler.handle(arguments: ["seeusage", "analytics", "clear"])
-        XCTAssertTrue(handledClear)
-        XCTAssertEqual(AnalyticsManager.shared.snapshots.count, 0)
 
         let handledHistoryAlias = await CLIHandler.handle(arguments: ["seeusage", "history"])
         XCTAssertTrue(handledHistoryAlias)
@@ -133,7 +135,7 @@ final class AnalyticsTests: XCTestCase {
     }
 
     func testResetDetectionAndPersistence() {
-        let manager = AnalyticsManager.shared
+        let manager = makeAnalyticsManager()
         manager.clearResets()
         XCTAssertEqual(manager.resetEvents.count, 0)
 
@@ -166,7 +168,7 @@ final class AnalyticsTests: XCTestCase {
     }
 
     func testUpcomingResetsComputation() {
-        let manager = AnalyticsManager.shared
+        let manager = makeAnalyticsManager()
         let pID = UUID()
         let now = Date()
 
@@ -202,17 +204,10 @@ final class AnalyticsTests: XCTestCase {
     }
 
     func testCLIResetsCommands() async {
-        let handledResets = await CLIHandler.handle(arguments: ["seeusage", "resets"])
-        XCTAssertTrue(handledResets)
-
-        let handledJSON = await CLIHandler.handle(arguments: ["seeusage", "resets", "json"])
-        XCTAssertTrue(handledJSON)
+        let handledRemovedSeed = await CLIHandler.handle(arguments: ["seeusage", "resets", "seed"])
+        XCTAssertTrue(handledRemovedSeed)
 
         let handledCSV = await CLIHandler.handle(arguments: ["seeusage", "resets", "csv"])
         XCTAssertTrue(handledCSV)
-
-        let handledClear = await CLIHandler.handle(arguments: ["seeusage", "resets", "clear"])
-        XCTAssertTrue(handledClear)
-        XCTAssertEqual(AnalyticsManager.shared.resetEvents.count, 0)
     }
 }

@@ -21,12 +21,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(selectedThemeID, forKey: "selectedThemeID")
             UserDefaults.standard.set(selectedThemeID, forKey: "selectedThemeID")
-            DistributedNotificationCenter.default().postNotificationName(
-                NSNotification.Name("app.seeusage.themeChanged"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
+            postDistributedChange("app.seeusage.themeChanged")
         }
     }
 
@@ -39,12 +34,7 @@ public final class SettingsStore {
             Self.defaults.set(menuBarDisplayMode.rawValue, forKey: "menuBarDisplayMode")
             UserDefaults.standard.set(menuBarDisplayMode.rawValue, forKey: "menuBarDisplayMode")
             NotificationCenter.default.post(name: .menuBarSettingsChanged, object: nil)
-            DistributedNotificationCenter.default().postNotificationName(
-                NSNotification.Name("app.seeusage.menuBarSettingsChanged"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
+            postDistributedChange("app.seeusage.menuBarSettingsChanged")
         }
     }
 
@@ -53,12 +43,7 @@ public final class SettingsStore {
             Self.defaults.set(menuBarShowIcon, forKey: "menuBarShowIcon")
             UserDefaults.standard.set(menuBarShowIcon, forKey: "menuBarShowIcon")
             NotificationCenter.default.post(name: .menuBarSettingsChanged, object: nil)
-            DistributedNotificationCenter.default().postNotificationName(
-                NSNotification.Name("app.seeusage.menuBarSettingsChanged"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
+            postDistributedChange("app.seeusage.menuBarSettingsChanged")
         }
     }
 
@@ -112,12 +97,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(hudEnabled, forKey: "hudEnabled")
             UserDefaults.standard.set(hudEnabled, forKey: "hudEnabled")
-            DistributedNotificationCenter.default().postNotificationName(
-                NSNotification.Name("app.seeusage.hudSettingsChanged"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
+            postDistributedChange("app.seeusage.hudSettingsChanged")
         }
     }
 
@@ -125,12 +105,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(hudAlwaysOnTop, forKey: "hudAlwaysOnTop")
             UserDefaults.standard.set(hudAlwaysOnTop, forKey: "hudAlwaysOnTop")
-            DistributedNotificationCenter.default().postNotificationName(
-                NSNotification.Name("app.seeusage.hudSettingsChanged"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
+            postDistributedChange("app.seeusage.hudSettingsChanged")
         }
     }
 
@@ -138,12 +113,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(hudCompactMode, forKey: "hudCompactMode")
             UserDefaults.standard.set(hudCompactMode, forKey: "hudCompactMode")
-            DistributedNotificationCenter.default().postNotificationName(
-                NSNotification.Name("app.seeusage.hudSettingsChanged"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
+            postDistributedChange("app.seeusage.hudSettingsChanged")
         }
     }
 
@@ -151,12 +121,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(hudOpacity, forKey: "hudOpacity")
             UserDefaults.standard.set(hudOpacity, forKey: "hudOpacity")
-            DistributedNotificationCenter.default().postNotificationName(
-                NSNotification.Name("app.seeusage.hudSettingsChanged"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
+            postDistributedChange("app.seeusage.hudSettingsChanged")
         }
     }
 
@@ -410,8 +375,14 @@ public final class SettingsStore {
     }
 
     private func postPreferencesChanged() {
+        postDistributedChange("app.seeusage.preferencesChanged")
+    }
+
+    private func postDistributedChange(_ name: String) {
+        let bundleID = Bundle.main.bundleIdentifier
+        guard bundleID == nil || bundleID == "app.seeusage.SeeUsage" else { return }
         DistributedNotificationCenter.default().postNotificationName(
-            NSNotification.Name("app.seeusage.preferencesChanged"),
+            NSNotification.Name(name),
             object: nil,
             userInfo: nil,
             deliverImmediately: true

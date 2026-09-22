@@ -4,28 +4,31 @@ import AppKit
 
 @MainActor
 public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
-    public static let shared = NotificationManager()
+    public static let shared = NotificationManager(stateDefaults: SettingsStore.defaults)
 
     private var alertedLowWindows: Set<String> = []
     private var lastKnownPercentages: [String: Double] = [:]
+    private let stateDefaults: UserDefaults
 
     private static let alertedKey = "app.seeusage.alertedLowWindows"
     private static let lastPercentsKey = "app.seeusage.lastKnownPercentages"
 
-    private override init() {
+    init(stateDefaults: UserDefaults = SettingsStore.defaults) {
+        self.stateDefaults = stateDefaults
         super.init()
         loadState()
         setupCenterIfAvailable()
     }
 
     private func setupCenterIfAvailable() {
-        guard Bundle.main.bundleIdentifier != nil else { return }
+        guard Bundle.main.bundleIdentifier == "app.seeusage.SeeUsage" else { return }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
     }
 
     public func requestAuthorization() {
-        guard SettingsStore.shared.notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
+        guard SettingsStore.shared.notificationsEnabled,
+              Bundle.main.bundleIdentifier == "app.seeusage.SeeUsage" else { return }
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error {
@@ -45,19 +48,17 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
 
     // MARK: - State Persistence
     private func loadState() {
-        let prefs = SettingsStore.defaults
-        if let list = prefs.stringArray(forKey: Self.alertedKey) {
+        if let list = stateDefaults.stringArray(forKey: Self.alertedKey) {
             alertedLowWindows = Set(list)
         }
-        if let dict = prefs.dictionary(forKey: Self.lastPercentsKey) as? [String: Double] {
+        if let dict = stateDefaults.dictionary(forKey: Self.lastPercentsKey) as? [String: Double] {
             lastKnownPercentages = dict
         }
     }
 
     private func saveState() {
-        let prefs = SettingsStore.defaults
-        prefs.set(Array(alertedLowWindows), forKey: Self.alertedKey)
-        prefs.set(lastKnownPercentages, forKey: Self.lastPercentsKey)
+        stateDefaults.set(Array(alertedLowWindows), forKey: Self.alertedKey)
+        stateDefaults.set(lastKnownPercentages, forKey: Self.lastPercentsKey)
     }
 
     public func pruneInactiveProfiles(keeping profileIDs: Set<UUID>) {
@@ -154,7 +155,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         guard settings.notificationsEnabled else { return }
         let soundEnabled = settings.notificationSoundEnabled
 
-        if Bundle.main.bundleIdentifier != nil {
+        if Bundle.main.bundleIdentifier == "app.seeusage.SeeUsage" {
             let content = UNMutableNotificationContent()
             content.title = title
             if let sub = subtitle { content.subtitle = sub }
@@ -179,13 +180,15 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
                     )
                 }
             }
-        } else {
+        } else if Bundle.main.bundleIdentifier == nil {
             Self.postViaAppleScript(
                 title: title,
                 subtitle: subtitle,
                 body: body,
                 sound: soundEnabled
             )
+        } else {
+            return
         }
     }
 

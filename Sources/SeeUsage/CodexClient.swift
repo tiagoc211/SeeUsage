@@ -272,7 +272,7 @@ public enum CodexClient {
     private static func makeInputLines(method: String, requestID: Int, params: [String: Any]) -> Data {
         let messages: [[String: Any]] = [
             ["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": [
-                "clientInfo": ["name": "SeeUsage", "version": "1.0.0"]
+                "clientInfo": ["name": "SeeUsage", "version": "1.1.0"]
             ]],
             ["jsonrpc": "2.0", "method": "initialized", "params": [:]],
             ["jsonrpc": "2.0", "id": requestID, "method": method, "params": params]

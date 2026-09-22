@@ -117,22 +117,40 @@ public final class AnalyticsManager {
         return folder.appendingPathComponent("resets.json")
     }
 
-    private static var historyClearMarkerURL: URL {
-        historyFileURL.deletingLastPathComponent().appendingPathComponent("history-cleared-at")
+    private let historyURL: URL
+    private let resetsURL: URL
+
+    private var historyClearMarkerURL: URL {
+        historyURL.deletingLastPathComponent().appendingPathComponent("history-cleared-at")
     }
 
-    private static var resetsClearMarkerURL: URL {
-        resetsFileURL.deletingLastPathComponent().appendingPathComponent("resets-cleared-at")
+    private var resetsClearMarkerURL: URL {
+        resetsURL.deletingLastPathComponent().appendingPathComponent("resets-cleared-at")
     }
 
-    private init() {
+    private convenience init() {
+        self.init(historyURL: Self.historyFileURL, resetsURL: Self.resetsFileURL)
+    }
+
+    public convenience init(storageDirectory: URL) {
+        self.init(
+            historyURL: storageDirectory.appendingPathComponent("history.json"),
+            resetsURL: storageDirectory.appendingPathComponent("resets.json")
+        )
+    }
+
+    private init(historyURL: URL, resetsURL: URL) {
+        self.historyURL = historyURL
+        self.resetsURL = resetsURL
         loadHistory()
-        DistributedNotificationCenter.default().addObserver(
-            forName: NSNotification.Name("app.seeusage.historyChanged"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.loadHistory() }
+        if Bundle.main.bundleIdentifier == nil || Bundle.main.bundleIdentifier == "app.seeusage.SeeUsage" {
+            DistributedNotificationCenter.default().addObserver(
+                forName: NSNotification.Name("app.seeusage.historyChanged"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.loadHistory() }
+            }
         }
     }
 
@@ -141,8 +159,8 @@ public final class AnalyticsManager {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        let historyData = SharedFileLock.withExclusiveLock(for: Self.historyFileURL) {
-            try? Data(contentsOf: Self.historyFileURL)
+        let historyData = SharedFileLock.withExclusiveLock(for: historyURL) {
+            try? Data(contentsOf: historyURL)
         }
         if let data = historyData,
            let list = try? decoder.decode([QuotaHistorySnapshot].self, from: data) {
@@ -150,8 +168,8 @@ public final class AnalyticsManager {
             self.lastRecordedAt = self.snapshots.last?.timestamp
         }
 
-        let resetData = SharedFileLock.withExclusiveLock(for: Self.resetsFileURL) {
-            try? Data(contentsOf: Self.resetsFileURL)
+        let resetData = SharedFileLock.withExclusiveLock(for: resetsURL) {
+            try? Data(contentsOf: resetsURL)
         }
         if let data = resetData,
            let events = try? decoder.decode([ResetEvent].self, from: data) {
@@ -166,36 +184,36 @@ public final class AnalyticsManager {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        SharedFileLock.withExclusiveLock(for: Self.historyFileURL) {
+        SharedFileLock.withExclusiveLock(for: historyURL) {
             var byTimestamp: [Double: QuotaHistorySnapshot] = [:]
-            if let data = try? Data(contentsOf: Self.historyFileURL),
+            if let data = try? Data(contentsOf: historyURL),
                let existing = try? decoder.decode([QuotaHistorySnapshot].self, from: data) {
                 existing.forEach { byTimestamp[$0.id] = $0 }
             }
             snapshots.forEach { byTimestamp[$0.id] = $0 }
-            if let clearDate = Self.readClearMarker(Self.historyClearMarkerURL) {
+            if let clearDate = Self.readClearMarker(historyClearMarkerURL) {
                 byTimestamp = byTimestamp.filter { $0.value.timestamp > clearDate }
             }
             snapshots = byTimestamp.values.sorted { $0.timestamp < $1.timestamp }.suffix(3000)
                 .map { $0 }
             if let data = try? encoder.encode(snapshots) {
-                try? data.write(to: Self.historyFileURL, options: .atomic)
+                try? data.write(to: historyURL, options: .atomic)
             }
         }
 
-        SharedFileLock.withExclusiveLock(for: Self.resetsFileURL) {
+        SharedFileLock.withExclusiveLock(for: resetsURL) {
             var byID: [UUID: ResetEvent] = [:]
-            if let data = try? Data(contentsOf: Self.resetsFileURL),
+            if let data = try? Data(contentsOf: resetsURL),
                let existing = try? decoder.decode([ResetEvent].self, from: data) {
                 existing.forEach { byID[$0.id] = $0 }
             }
             resetEvents.forEach { byID[$0.id] = $0 }
-            if let clearDate = Self.readClearMarker(Self.resetsClearMarkerURL) {
+            if let clearDate = Self.readClearMarker(resetsClearMarkerURL) {
                 byID = byID.filter { $0.value.timestamp > clearDate }
             }
             resetEvents = byID.values.sorted { $0.timestamp > $1.timestamp }.prefix(1000).map { $0 }
             if let data = try? encoder.encode(resetEvents) {
-                try? data.write(to: Self.resetsFileURL, options: .atomic)
+                try? data.write(to: resetsURL, options: .atomic)
             }
         }
         postHistoryChanged()
@@ -205,22 +223,22 @@ public final class AnalyticsManager {
         snapshots.removeAll()
         resetEvents.removeAll()
         lastRecordedAt = nil
-        SharedFileLock.withExclusiveLock(for: Self.historyFileURL) {
-            Self.writeClearMarker(Self.historyClearMarkerURL)
-            try? FileManager.default.removeItem(at: Self.historyFileURL)
+        SharedFileLock.withExclusiveLock(for: historyURL) {
+            Self.writeClearMarker(historyClearMarkerURL)
+            try? FileManager.default.removeItem(at: historyURL)
         }
-        SharedFileLock.withExclusiveLock(for: Self.resetsFileURL) {
-            Self.writeClearMarker(Self.resetsClearMarkerURL)
-            try? FileManager.default.removeItem(at: Self.resetsFileURL)
+        SharedFileLock.withExclusiveLock(for: resetsURL) {
+            Self.writeClearMarker(resetsClearMarkerURL)
+            try? FileManager.default.removeItem(at: resetsURL)
         }
         postHistoryChanged()
     }
 
     public func clearResets() {
         resetEvents.removeAll()
-        SharedFileLock.withExclusiveLock(for: Self.resetsFileURL) {
-            Self.writeClearMarker(Self.resetsClearMarkerURL)
-            try? FileManager.default.removeItem(at: Self.resetsFileURL)
+        SharedFileLock.withExclusiveLock(for: resetsURL) {
+            Self.writeClearMarker(resetsClearMarkerURL)
+            try? FileManager.default.removeItem(at: resetsURL)
         }
         postHistoryChanged()
     }
@@ -701,6 +719,7 @@ public final class AnalyticsManager {
     }
 
     private func postHistoryChanged() {
+        guard Bundle.main.bundleIdentifier == nil || Bundle.main.bundleIdentifier == "app.seeusage.SeeUsage" else { return }
         DistributedNotificationCenter.default().postNotificationName(
             NSNotification.Name("app.seeusage.historyChanged"),
             object: nil,

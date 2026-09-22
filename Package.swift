@@ -14,13 +14,9 @@ let package = Package(
             name: "SeeUsage",
             path: "Sources/SeeUsage"
         ),
-        .target(
-            name: "XCTest",
-            path: "Sources/XCTest"
-        ),
         .testTarget(
             name: "SeeUsageTests",
-            dependencies: ["SeeUsage", "XCTest"],
+            dependencies: ["SeeUsage"],
             path: "Tests/SeeUsageTests"
         )
     ]

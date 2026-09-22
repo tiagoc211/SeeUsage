@@ -36,7 +36,8 @@ public final class UsageStore {
 
     public var minRemainingPercent: Int? {
         var minVal: Double? = nil
-        for (_, snapshot) in snapshots where snapshot.error == nil && !snapshot.isStale {
+        let activeIDs = Set(SettingsStore.shared.codexProfiles.map(\.id) + [SettingsStore.antigravityProfileID])
+        for (id, snapshot) in snapshots where activeIDs.contains(id) && snapshot.error == nil && !snapshot.isStale {
             for window in snapshot.windows {
                 if let pct = window.remainingPercent {
                     if let current = minVal {
@@ -147,12 +148,15 @@ public final class UsageStore {
                 try? sharedData.write(to: Self.sharedCacheURL, options: .atomic)
             }
         }
-        DistributedNotificationCenter.default().postNotificationName(
-            NSNotification.Name("app.seeusage.cacheChanged"),
-            object: nil,
-            userInfo: nil,
-            deliverImmediately: true
-        )
+        let bundleID = Bundle.main.bundleIdentifier
+        if bundleID == nil || bundleID == "app.seeusage.SeeUsage" {
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("app.seeusage.cacheChanged"),
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
     }
 
     public func startTimer() {

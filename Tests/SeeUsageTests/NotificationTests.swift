@@ -43,7 +43,10 @@ final class NotificationTests: XCTestCase {
     }
 
     func testNotificationEvaluation() {
-        let manager = NotificationManager.shared
+        let suiteName = "SeeUsageNotificationTests-\(UUID().uuidString)"
+        let stateDefaults = UserDefaults(suiteName: suiteName)!
+        defer { stateDefaults.removePersistentDomain(forName: suiteName) }
+        let manager = NotificationManager(stateDefaults: stateDefaults)
         let profileID = UUID()
 
         let window5h = UsageWindow(
@@ -123,6 +126,14 @@ final class NotificationTests: XCTestCase {
     }
 
     func testCLINotifyCommands() async {
+        let settings = SettingsStore.shared
+        let originalNotificationsEnabled = settings.notificationsEnabled
+        let originalThreshold = settings.criticalThresholdPercent
+        defer {
+            settings.notificationsEnabled = originalNotificationsEnabled
+            settings.criticalThresholdPercent = originalThreshold
+        }
+
         let handledStatus = await CLIHandler.handle(arguments: ["seeusage", "notify"])
         XCTAssertTrue(handledStatus)
 
@@ -137,7 +148,5 @@ final class NotificationTests: XCTestCase {
         let handledTest = await CLIHandler.handle(arguments: ["seeusage", "notify", "test"])
         XCTAssertTrue(handledTest)
 
-        // Reset to 15
-        SettingsStore.shared.criticalThresholdPercent = 15
     }
 }

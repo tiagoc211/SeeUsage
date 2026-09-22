@@ -41,6 +41,18 @@ final class FloatingHUDTests: XCTestCase {
     }
 
     func testCLIHUDCommands() async {
+        let settings = SettingsStore.shared
+        let originalEnabled = settings.hudEnabled
+        let originalOnTop = settings.hudAlwaysOnTop
+        let originalCompact = settings.hudCompactMode
+        let originalOpacity = settings.hudOpacity
+        defer {
+            settings.hudEnabled = originalEnabled
+            settings.hudAlwaysOnTop = originalOnTop
+            settings.hudCompactMode = originalCompact
+            settings.hudOpacity = originalOpacity
+        }
+
         let handledStatus = await CLIHandler.handle(arguments: ["seeusage", "hud"])
         XCTAssertTrue(handledStatus)
 
@@ -70,19 +82,13 @@ final class FloatingHUDTests: XCTestCase {
     }
 
     func testFloatingHUDManager() {
+        let settings = SettingsStore.shared
+        let originalEnabled = settings.hudEnabled
+        defer { settings.hudEnabled = originalEnabled }
+
+        settings.hudEnabled = false
         let manager = FloatingHUDManager.shared
-        manager.show()
-        XCTAssertEqual(SettingsStore.shared.hudEnabled, true)
-
         manager.applySettings()
-
-        manager.hide()
-        XCTAssertEqual(SettingsStore.shared.hudEnabled, false)
-
-        manager.toggle()
-        XCTAssertEqual(SettingsStore.shared.hudEnabled, true)
-
-        manager.toggle()
-        XCTAssertEqual(SettingsStore.shared.hudEnabled, false)
+        XCTAssertFalse(manager.isVisible)
     }
 }

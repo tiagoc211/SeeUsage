@@ -600,34 +600,40 @@ public enum CLIHandler {
     private static func handleHUDCommand(action: String) {
         let s = SettingsStore.shared
         let dist = DistributedNotificationCenter.default()
+        let bundleID = Bundle.main.bundleIdentifier
+        let canControlDesktopApp = bundleID == nil || bundleID == "app.seeusage.SeeUsage"
 
         switch action.lowercased() {
         case "toggle":
             let shouldShow = !s.hudEnabled
             s.hudEnabled = shouldShow
-            ensureAppRunning()
+            if canControlDesktopApp { ensureAppRunning() }
             let status = shouldShow ? green("Visible") : dim("Hidden")
             print("\n" + green("✓") + " Floating Desktop HUD: \(status)\n")
 
         case "on", "show", "open", "1":
             s.hudEnabled = true
-            dist.postNotificationName(
-                NSNotification.Name("app.seeusage.showHUD"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
-            ensureAppRunning()
+            if canControlDesktopApp {
+                dist.postNotificationName(
+                    NSNotification.Name("app.seeusage.showHUD"),
+                    object: nil,
+                    userInfo: nil,
+                    deliverImmediately: true
+                )
+                ensureAppRunning()
+            }
             print("\n" + green("✓") + " Floating Desktop HUD opened.\n")
 
         case "off", "hide", "close", "0":
             s.hudEnabled = false
-            dist.postNotificationName(
-                NSNotification.Name("app.seeusage.hideHUD"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
+            if canControlDesktopApp {
+                dist.postNotificationName(
+                    NSNotification.Name("app.seeusage.hideHUD"),
+                    object: nil,
+                    userInfo: nil,
+                    deliverImmediately: true
+                )
+            }
             print("\n" + green("✓") + " Floating Desktop HUD hidden.\n")
 
         case "compact", "pill", "mini":
@@ -661,6 +667,8 @@ public enum CLIHandler {
     }
 
     private static func ensureAppRunning() {
+        let bundleID = Bundle.main.bundleIdentifier
+        guard bundleID == nil || bundleID == "app.seeusage.SeeUsage" else { return }
         let appPath = NSString(string: "~/Applications/SeeUsage.app").expandingTildeInPath
         if FileManager.default.fileExists(atPath: appPath) {
             let url = URL(fileURLWithPath: appPath)
@@ -1198,8 +1206,9 @@ public enum CLIHandler {
     // MARK: - Helpers
     public static func profileAlias(name: String) -> String {
         let low = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-        if low.contains("pessoal") || low.contains("personal") { return "cxp" }
-        if low.contains("trabalho") || low.contains("work") { return "cxt" }
+        let words = low.split { !$0.isLetter && !$0.isNumber }
+        if words.contains("pessoal") || words.contains("personal") { return "cxp" }
+        if words.contains("trabalho") || words.contains("work") { return "cxt" }
         let slug = low.replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return slug.isEmpty ? "codex" : slug

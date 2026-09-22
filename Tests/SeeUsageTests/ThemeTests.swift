@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import SeeUsage
 
-final class ThemeTests {
+final class ThemeTests: XCTestCase {
     func testThemesRegistration() {
         XCTAssertEqual(ThemeRegistry.allThemes.count, 10)
 
