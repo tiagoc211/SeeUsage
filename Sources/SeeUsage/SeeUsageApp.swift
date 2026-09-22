@@ -292,7 +292,10 @@ struct SeeUsageApp: App {
 
     init() {
         let args = CommandLine.arguments
-        let isInvokedFromCLI = args.count > 1 || (args.first?.hasSuffix("/seeusage") == true && isatty(fileno(stdout)) != 0)
+        let invokedThroughCLIName = args.first.map {
+            URL(fileURLWithPath: $0).lastPathComponent == "seeusage"
+        } ?? false
+        let isInvokedFromCLI = args.count > 1 || invokedThroughCLIName
 
         if isInvokedFromCLI {
             Task { @MainActor in

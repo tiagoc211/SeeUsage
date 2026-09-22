@@ -30,6 +30,7 @@ public enum CLIHandler {
     public static func handle(arguments: [String]) async -> Bool {
         // Strip executable path
         var args = Array(arguments.dropFirst())
+        useColor = isatty(fileno(stdout)) != 0
 
         if args.contains("--no-color") {
             useColor = false
@@ -115,8 +116,7 @@ public enum CLIHandler {
             return true
         }
 
-        if args.contains("consume-reset") || args.contains("activate-reset") {
-            let idx = args.firstIndex(of: "consume-reset") ?? args.firstIndex(of: "activate-reset")!
+        if let idx = args.firstIndex(of: "consume-reset") ?? args.firstIndex(of: "activate-reset") {
             let target = (idx + 1 < args.count && !args[idx + 1].hasPrefix("-")) ? args[idx + 1] : nil
             let autoConfirm = args.contains("--yes") || args.contains("-y")
             await handleConsumeBankedReset(target: target, autoConfirm: autoConfirm)
@@ -268,10 +268,11 @@ public enum CLIHandler {
 
         // Codex Profiles
         for profile in settings.codexProfiles {
-            let alias = profileAlias(name: profile.name)
-            if let snap = store.snapshots[profile.id] {
+            let alias = profileAlias(for: profile, among: settings.codexProfiles)
+            if let snap = store.snapshots[profile.id], snap.error == nil, !snap.isStale {
                 let windows = snap.windows
-                let w5 = windows.first(where: { $0.label == "5h" }) ?? windows.first
+                let fiveHourWindows = windows.filter { $0.durationMinutes == 300 || $0.label.lowercased().contains("5 h") }
+                let w5 = fiveHourWindows.min { ($0.remainingPercent ?? 101) < ($1.remainingPercent ?? 101) } ?? windows.first
                 if let w = w5, let pct = w.remainingPercent {
                     let col = quotaColor(for: pct)
                     let resetStr: String
@@ -291,7 +292,7 @@ public enum CLIHandler {
         }
 
         // Antigravity (Gemini priority)
-        if let agy = store.snapshots[SettingsStore.antigravityProfileID] {
+        if let agy = store.snapshots[SettingsStore.antigravityProfileID], agy.error == nil, !agy.isStale {
             let geminiWindows = agy.windows.filter { $0.scope?.contains("Gemini") ?? false }
             let w5 = geminiWindows.first(where: { $0.label.contains("5") }) ?? geminiWindows.first ?? agy.windows.first
             if let w = w5, let pct = w.remainingPercent {
@@ -326,23 +327,27 @@ public enum CLIHandler {
             print("  " + dim("No profiles configured."))
         } else {
             for profile in settings.codexProfiles {
-                let alias = profileAlias(name: profile.name)
+                let alias = profileAlias(for: profile, among: settings.codexProfiles)
                 let snap = store.snapshots[profile.id]
                 let planTag = snap?.plan.map { dim("[\($0.lowercased())]") } ?? ""
 
                 print("  " + cyan("$ ") + bold(alias) + dim(" (\(profile.name))") + " \(planTag)")
 
-                if let err = snap?.error, snap?.windows.isEmpty ?? true {
+                if let err = snap?.error {
                     print("    " + amber("⚠ \(err)"))
-                } else if let windows = snap?.windows, !windows.isEmpty {
+                }
+
+                if let windows = snap?.windows, !windows.isEmpty {
                     for w in windows {
-                        printWindowRow(label: w.label, percent: w.remainingPercent, reset: w.resetsAt)
+                        let label = w.scope.map { "\($0) · \(w.label)" } ?? w.label
+                        printWindowRow(label: label, percent: w.remainingPercent, reset: w.resetsAt)
                     }
-                    if let available = snap?.availableResetCredits, available > 0 {
+                    if snap?.error == nil, snap?.isStale == false,
+                       let available = snap?.availableResetCredits, available > 0 {
                         let planName = (snap?.plan ?? "Plus").capitalized
                         print("    " + amber("⚡ \(available) banked reset [\(planName)]") + dim(" • run: ") + bold(green("seeusage resets consume \(alias)")))
                     }
-                } else {
+                } else if snap?.error == nil {
                     print("    " + dim("connecting..."))
                 }
                 print("")
@@ -352,9 +357,10 @@ public enum CLIHandler {
         // 2. ANTIGRAVITY (AGY)
         print(bold(purple("// ANTIGRAVITY (AGY ROUTED MODELS)")))
         let agySnap = store.snapshots[SettingsStore.antigravityProfileID]
-        if let err = agySnap?.error, agySnap?.windows.isEmpty ?? true {
+        if let err = agySnap?.error {
             print("  " + amber("⚠ \(err)"))
-        } else if let snapshot = agySnap, !snapshot.windows.isEmpty {
+        }
+        if let snapshot = agySnap, !snapshot.windows.isEmpty {
             let grouped = Dictionary(grouping: snapshot.windows) { $0.scope ?? "Antigravity" }
             let keys = grouped.keys.sorted { lhs, rhs in
                 if lhs.contains("Gemini") { return true }
@@ -372,7 +378,7 @@ public enum CLIHandler {
                 }
                 print("")
             }
-        } else {
+        } else if agySnap?.error == nil {
             print("  " + dim("fetching metrics..."))
             print("")
         }
@@ -418,6 +424,7 @@ public enum CLIHandler {
     private static func printJSON(store: UsageStore, settings: SettingsStore) {
         struct JSONWindow: Codable {
             let label: String
+            let scope: String?
             let remainingPercent: Double?
             let resetsAt: String?
             let resetHuman: String?
@@ -448,13 +455,14 @@ public enum CLIHandler {
             let winList = windows.map { w in
                 JSONWindow(
                     label: w.label,
+                    scope: w.scope,
                     remainingPercent: w.remainingPercent,
                     resetsAt: w.resetsAt.map { iso.string(from: $0) },
                     resetHuman: w.resetsAt.map { Formatters.resetDescription(for: $0) }
                 )
             }
             codexList.append(JSONProfile(
-                alias: profileAlias(name: p.name),
+                alias: profileAlias(for: p, among: settings.codexProfiles),
                 name: p.name,
                 homePath: p.homePath,
                 plan: snap?.plan,
@@ -467,7 +475,8 @@ public enum CLIHandler {
         let agyWindows = agySnap?.windows ?? []
         let agyList = agyWindows.map { w in
             JSONWindow(
-                label: "\(w.scope ?? "AGY") \(w.label)",
+                label: w.label,
+                scope: w.scope,
                 remainingPercent: w.remainingPercent,
                 resetsAt: w.resetsAt.map { iso.string(from: $0) },
                 resetHuman: w.resetsAt.map { Formatters.resetDescription(for: $0) }
@@ -494,10 +503,10 @@ public enum CLIHandler {
         let clean = target.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
 
         for p in settings.codexProfiles {
-            let alias = profileAlias(name: p.name)
+            let alias = profileAlias(for: p, among: settings.codexProfiles)
             if clean == alias || clean == p.name.lowercased() {
                 if let path = p.homePath {
-                    print("export CODEX_HOME=\"\(path)\"")
+                    print("export CODEX_HOME=\(shellSingleQuoted(path))")
                     return
                 } else {
                     print("unset CODEX_HOME")
@@ -506,21 +515,26 @@ public enum CLIHandler {
             }
         }
 
-        let aliases = settings.codexProfiles.map { profileAlias(name: $0.name) }.joined(separator: ", ")
+        let aliases = settings.codexProfiles.map { profileAlias(for: $0, among: settings.codexProfiles) }.joined(separator: ", ")
         FileHandle.standardError.write(Data("Unknown profile '\(target)'. Available: \(aliases)\n".utf8))
         exit(1)
     }
 
     // MARK: - Shell Init Snippet
     private static func printShellInit(shell: String) {
+        let shellName = shell.lowercased()
+        guard ["zsh", "bash", "sh"].contains(shellName) else {
+            FileHandle.standardError.write(Data("Unsupported shell '\(shell)'. Use zsh, bash, or sh.\n".utf8))
+            return
+        }
         let settings = SettingsStore.shared
         var switches: [String] = []
         for p in settings.codexProfiles {
-            let alias = profileAlias(name: p.name)
+            let alias = profileAlias(for: p, among: settings.codexProfiles)
             if let path = p.homePath {
                 switches.append("""
                 \(alias)() {
-                  export CODEX_HOME="\(path)"
+                  export CODEX_HOME=\(shellSingleQuoted(path))
                   codex "$@"
                 }
                 """)
@@ -547,6 +561,10 @@ public enum CLIHandler {
         # format = "[$output]($style) "
         # style = "bold cyan"
         """)
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     // MARK: - Floating Mini-HUD Controls
@@ -585,14 +603,10 @@ public enum CLIHandler {
 
         switch action.lowercased() {
         case "toggle":
-            s.hudEnabled.toggle()
-            dist.postNotificationName(
-                NSNotification.Name("app.seeusage.toggleHUD"),
-                object: nil,
-                userInfo: nil,
-                deliverImmediately: true
-            )
-            let status = s.hudEnabled ? green("Visible") : dim("Hidden")
+            let shouldShow = !s.hudEnabled
+            s.hudEnabled = shouldShow
+            ensureAppRunning()
+            let status = shouldShow ? green("Visible") : dim("Hidden")
             print("\n" + green("✓") + " Floating Desktop HUD: \(status)\n")
 
         case "on", "show", "open", "1":
@@ -807,6 +821,11 @@ public enum CLIHandler {
             return
         }
 
+        if subArg == "seed" || subArg == "--seed" {
+            FileHandle.standardError.write(Data("Demo quota data is no longer supported; SeeUsage records real usage as it refreshes.\n".utf8))
+            return
+        }
+
         if subArg == "gui" || subArg == "--gui" {
             DistributedNotificationCenter.default().postNotificationName(
                 NSNotification.Name("app.seeusage.openSettings"),
@@ -831,22 +850,20 @@ public enum CLIHandler {
         // Ensure we have active snapshots to calculate upcoming resets
         let store = UsageStore.shared
         store.loadCache()
-        if store.snapshots.isEmpty {
-            await store.refresh()
-        }
+        await store.refresh(forceAfterCurrent: true)
 
         let upcoming = analytics.computeUpcomingResets(from: store.snapshots)
         let history = analytics.getResetEvents(limit: 20)
 
         if subArg == "json" || subArg == "--json" || args.contains("--json") {
             let iso = ISO8601DateFormatter()
-            let upcomingPayload = upcoming.map { u in
+            let upcomingPayload: [[String: Any]] = upcoming.map { u in
                 [
                     "profileName": u.profileName,
                     "service": u.service,
-                    "scope": u.scope as Any,
+                    "scope": jsonValue(u.scope),
                     "windowLabel": u.windowLabel,
-                    "remainingPercent": u.currentRemainingPercent as Any,
+                    "remainingPercent": jsonValue(u.currentRemainingPercent),
                     "resetsAt": iso.string(from: u.resetsAt),
                     "secondsUntilReset": max(0, Int(round(u.secondsUntilReset))),
                     "resetHuman": Formatters.resetDescription(for: u.resetsAt)
@@ -857,25 +874,26 @@ public enum CLIHandler {
                     "timestamp": iso.string(from: h.timestamp),
                     "profileName": h.profileName,
                     "service": h.service,
-                    "scope": h.scope as Any,
+                    "scope": jsonValue(h.scope),
                     "windowLabel": h.windowLabel,
                     "quotaBefore": h.quotaBefore,
                     "quotaAfter": h.quotaAfter,
                     "quotaRestored": h.quotaRestored,
-                    "nextResetAt": h.nextResetAt.map { iso.string(from: $0) } as Any
+                    "nextResetAt": jsonValue(h.nextResetAt.map { iso.string(from: $0) })
                 ]
             }
             let bankedPayload = analytics.getAvailableBankedCredits(
                 from: store.snapshots,
                 profiles: SettingsStore.shared.codexProfiles
-            ).map { b in
-                [
+            ).map { b -> [String: Any] in
+                var payload: [String: Any] = [
                     "profileName": b.profile.name,
-                    "creditId": b.credit.id,
-                    "title": b.credit.title as Any,
+                    "title": jsonValue(b.credit.title),
                     "status": b.credit.status,
-                    "expiresAt": b.credit.expiresAt.map { iso.string(from: $0) } as Any
+                    "expiresAt": jsonValue(b.credit.expiresAt.map { iso.string(from: $0) })
                 ]
+                if let serverID = b.credit.serverCreditID { payload["creditId"] = serverID }
+                return payload
             }
             let full: [String: Any] = [
                 "upcomingResets": upcomingPayload,
@@ -910,34 +928,52 @@ public enum CLIHandler {
             return
         }
 
-        // Match requested profile
-        let matchingItems: [(profile: UsageProfile, credit: BankedResetCredit)]
-        if let t = target?.lowercased() {
-            matchingItems = bankedCredits.filter { item in
-                let lowName = item.profile.name.lowercased()
-                return CLIHandler.profileAlias(name: item.profile.name) == t || lowName == t || lowName.contains(t)
+        // Select a profile first; multiple credits on the same profile are interchangeable
+        // for activation, so use the one that expires first.
+        let eligibleCredits: [(profile: UsageProfile, credit: BankedResetCredit)]
+        if let target {
+            let query = target.lowercased()
+            let matchingProfiles = settings.codexProfiles.filter { profile in
+                let name = profile.name.lowercased()
+                let alias = CLIHandler.profileAlias(for: profile, among: settings.codexProfiles)
+                return alias == query || name == query || name.contains(query)
             }
-        } else if bankedCredits.count == 1 {
-            matchingItems = bankedCredits
+            guard matchingProfiles.count == 1, let matchingProfile = matchingProfiles.first else {
+                if matchingProfiles.count > 1 {
+                    print("\n" + amber("That profile name matches more than one account. Use a unique alias:"))
+                    for profile in matchingProfiles {
+                        print("  seeusage resets consume \(CLIHandler.profileAlias(for: profile, among: settings.codexProfiles))  (\(profile.name))")
+                    }
+                    print("")
+                    return
+                }
+                print("\n" + red("✗") + " No available banked reset found matching '\(target)'.\n")
+                return
+            }
+            eligibleCredits = bankedCredits.filter { $0.profile.id == matchingProfile.id }
         } else {
-            print("\n" + amber("Multiple banked resets available. Please specify profile:"))
-            for b in bankedCredits {
-                let alias = CLIHandler.profileAlias(name: b.profile.name)
-                print("  seeusage resets consume \(alias)  (\(b.profile.name))")
+            let profilesWithCredits = settings.codexProfiles.filter { profile in
+                bankedCredits.contains(where: { $0.profile.id == profile.id })
             }
-            print("")
-            return
-        }
-
-        guard matchingItems.count == 1, let targetItem = matchingItems.first else {
-            if matchingItems.count > 1 {
-                print("\n" + amber("That profile name matches more than one configured profile. Use a unique alias:"))
-                for item in matchingItems {
-                    print("  seeusage resets consume \(CLIHandler.profileAlias(name: item.profile.name))  (\(item.profile.name))")
+            guard profilesWithCredits.count == 1, let onlyProfile = profilesWithCredits.first else {
+                print("\n" + amber("Multiple profiles have banked resets. Please specify a profile:"))
+                for profile in profilesWithCredits {
+                    print("  seeusage resets consume \(CLIHandler.profileAlias(for: profile, among: settings.codexProfiles))  (\(profile.name))")
                 }
                 print("")
                 return
             }
+            eligibleCredits = bankedCredits.filter { $0.profile.id == onlyProfile.id }
+        }
+
+        guard let targetItem = eligibleCredits.sorted(by: { lhs, rhs in
+            switch (lhs.credit.expiresAt, rhs.credit.expiresAt) {
+            case let (left?, right?): return left < right
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return lhs.credit.id < rhs.credit.id
+            }
+        }).first else {
             print("\n" + red("✗") + " No available banked reset found matching \'\(target ?? "")\'.\n")
             return
         }
@@ -954,7 +990,7 @@ public enum CLIHandler {
             df.dateFormat = "MMM d, HH:mm"
             print("  Expires: " + dim(df.string(from: exp)) + " " + dim("(\(Formatters.resetDescription(for: exp).lowercased()))"))
         }
-        print("\n" + bold("This will immediately consume 1 credit and restore your usage quotas to 100%."))
+        print("\n" + bold("This will immediately use one credit to reset eligible Codex quota windows."))
 
         if !autoConfirm {
             print("Proceed with activation? [y/N]: ", terminator: "")
@@ -1067,7 +1103,7 @@ public enum CLIHandler {
         if history.isEmpty {
             print("  " + dim("No reset events logged yet."))
             print("  " + dim("SeeUsage detects resets automatically when quota renews or scheduled cycles elapse."))
-            print("  " + dim("Run `seeusage resets seed` to populate realistic sample reset history."))
+            print("  " + dim("Reset events are recorded from real quota changes when SeeUsage refreshes."))
         } else {
             let hDate = "EVENT TIME".padding(toLength: 17, withPad: " ", startingAt: 0)
             let hProf = "PROFILE".padding(toLength: 16, withPad: " ", startingAt: 0)
@@ -1102,7 +1138,6 @@ public enum CLIHandler {
         print(dim("    seeusage resets json         Export upcoming and history as JSON"))
         print(dim("    seeusage resets csv          Export reset history as CSV"))
         print(dim("    seeusage resets clear        Clear recorded reset history"))
-        print(dim("    seeusage resets seed         Seed realistic demo reset events"))
         print("")
     }
 
@@ -1114,7 +1149,7 @@ public enum CLIHandler {
         \(bold("USAGE:"))
           seeusage [options]
           seeusage watch
-          seeusage resets [csv|json|clear|seed]
+          seeusage resets [csv|json|clear]
           seeusage settings
           seeusage themes
           seeusage theme <id>
@@ -1170,9 +1205,20 @@ public enum CLIHandler {
         return slug.isEmpty ? "codex" : slug
     }
 
+    public static func profileAlias(for profile: UsageProfile, among profiles: [UsageProfile]) -> String {
+        let alias = profileAlias(name: profile.name)
+        let matches = profiles.filter { profileAlias(name: $0.name) == alias }
+        guard matches.count > 1, let index = matches.firstIndex(where: { $0.id == profile.id }) else { return alias }
+        return "\(alias)-\(index + 1)"
+    }
+
     private static func scopeBadge(scope: String) -> String {
         if scope.contains("Gemini") { return purple("[gemini]") }
         if scope.contains("Claude") { return amber("[claude & gpt (agy)]") }
         return green("[\(scope.lowercased())]")
+    }
+
+    private static func jsonValue(_ value: Any?) -> Any {
+        value ?? NSNull()
     }
 }

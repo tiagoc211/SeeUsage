@@ -193,7 +193,7 @@ public enum CodexClient {
             return "7 days"
         default:
             if minutes % 10080 == 0 {
-                return "\(minutes / 10080) dias"
+                return "\(minutes / 10080) days"
             } else if minutes % 1440 == 0 {
                 return "\(minutes / 1440) days"
             } else if minutes % 60 == 0 {

@@ -25,7 +25,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     }
 
     public func requestAuthorization() {
-        guard Bundle.main.bundleIdentifier != nil else { return }
+        guard SettingsStore.shared.notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error {
@@ -60,6 +60,17 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         prefs.set(lastKnownPercentages, forKey: Self.lastPercentsKey)
     }
 
+    public func pruneInactiveProfiles(keeping profileIDs: Set<UUID>) {
+        func isActive(_ key: String) -> Bool {
+            guard let profileComponent = key.split(separator: ":", maxSplits: 1).first,
+                  let profileID = UUID(uuidString: String(profileComponent)) else { return false }
+            return profileIDs.contains(profileID)
+        }
+        alertedLowWindows = Set(alertedLowWindows.filter(isActive))
+        lastKnownPercentages = lastKnownPercentages.filter { isActive($0.key) }
+        saveState()
+    }
+
     // MARK: - Quota Evaluation Engine
     public func evaluateSnapshots(
         oldSnapshots: [UUID: UsageSnapshot],
@@ -71,6 +82,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         let threshold = Double(settings.criticalThresholdPercent)
 
         for (profileID, newSnapshot) in newSnapshots {
+            guard newSnapshot.error == nil, !newSnapshot.isStale else { continue }
             let profileName: String
             let serviceName: String
 
@@ -88,7 +100,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
             for window in newSnapshot.windows {
                 guard let currentPct = window.remainingPercent else { continue }
                 let scopeLabel = window.scope.map { " (\($0))" } ?? ""
-                let key = "\(profileID.uuidString):\(window.scope ?? ""):\(window.label)"
+                let key = "\(profileID.uuidString):\(window.id)"
                 let prevPct = lastKnownPercentages[key]
 
                 // 1. Critical Quota Alert
@@ -188,11 +200,18 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     }
 
     private nonisolated static func postViaAppleScript(title: String, subtitle: String?, body: String, sound: Bool) {
-        let cleanTitle = title.replacingOccurrences(of: "\"", with: "\\\"")
-        let cleanBody = body.replacingOccurrences(of: "\"", with: "\\\"")
+        func appleScriptString(_ value: String) -> String {
+            value
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\r", with: "\\r")
+                .replacingOccurrences(of: "\n", with: "\\n")
+        }
+        let cleanTitle = appleScriptString(title)
+        let cleanBody = appleScriptString(body)
         var script = "display notification \"\(cleanBody)\" with title \"\(cleanTitle)\""
         if let sub = subtitle {
-            let cleanSub = sub.replacingOccurrences(of: "\"", with: "\\\"")
+            let cleanSub = appleScriptString(sub)
             script += " subtitle \"\(cleanSub)\""
         }
         if sound {

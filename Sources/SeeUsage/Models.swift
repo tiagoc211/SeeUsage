@@ -148,7 +148,8 @@ public struct UsageSnapshot: Identifiable, Codable, Sendable {
     }
 
     public var isStale: Bool {
-        Date().timeIntervalSince(fetchedAt) > 600
+        let staleAfter = max(600, SettingsStore.shared.refreshIntervalMinutes * 120)
+        return Date().timeIntervalSince(fetchedAt) > Double(staleAfter)
     }
 }
 
@@ -235,12 +236,15 @@ public struct ResetEvent: Identifiable, Codable, Hashable, Sendable {
 }
 
 public struct UpcomingResetInfo: Identifiable, Codable, Hashable, Sendable {
-    public var id: String { "\(profileID.uuidString)-\(scope ?? "")-\(windowLabel)" }
+    public var id: String {
+        "\(profileID.uuidString)-\(windowID ?? "\(scope ?? "")-\(windowLabel)-\(durationMinutes ?? 0)")"
+    }
     public let profileID: UUID
     public let profileName: String
     public let service: String
     public let scope: String?
     public let windowLabel: String
+    public let windowID: String?
     public let durationMinutes: Int?
     public let currentRemainingPercent: Double?
     public let resetsAt: Date
@@ -251,6 +255,7 @@ public struct UpcomingResetInfo: Identifiable, Codable, Hashable, Sendable {
         service: String,
         scope: String? = nil,
         windowLabel: String,
+        windowID: String? = nil,
         durationMinutes: Int? = nil,
         currentRemainingPercent: Double? = nil,
         resetsAt: Date
@@ -260,6 +265,7 @@ public struct UpcomingResetInfo: Identifiable, Codable, Hashable, Sendable {
         self.service = service
         self.scope = scope
         self.windowLabel = windowLabel
+        self.windowID = windowID
         self.durationMinutes = durationMinutes
         self.currentRemainingPercent = currentRemainingPercent
         self.resetsAt = resetsAt

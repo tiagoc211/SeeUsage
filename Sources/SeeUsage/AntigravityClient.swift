@@ -26,11 +26,19 @@ public enum AntigravityClient {
             )
 
             guard result.terminationStatus == 0 else {
-                let err = result.errorString
-                if err.localizedCaseInsensitiveContains("auth") || err.localizedCaseInsensitiveContains("sign in") || err.localizedCaseInsensitiveContains("login") {
+                let detail = [result.errorString, result.outputString]
+                    .joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let lowerDetail = detail.lowercased()
+                if ["auth", "sign in", "login", "unauthorized", "credential"].contains(where: lowerDetail.contains) {
                     return UsageSnapshot(profileID: profileID, error: "Log in to Antigravity CLI.")
                 }
-                return UsageSnapshot(profileID: profileID, error: "Log in to Antigravity CLI.")
+                return UsageSnapshot(
+                    profileID: profileID,
+                    error: detail.isEmpty
+                        ? "Antigravity CLI exited with status \(result.terminationStatus)."
+                        : detail
+                )
             }
 
             return parse(output: result.outputString, profileID: profileID)
@@ -42,6 +50,7 @@ public enum AntigravityClient {
     public static func parse(output: String, profileID: UUID) -> UsageSnapshot {
         let lines = output.components(separatedBy: .newlines)
         var windows: [UsageWindow] = []
+        var seenWindowIDs = Set<String>()
 
         for line in lines {
             let parts = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
@@ -51,9 +60,7 @@ public enum AntigravityClient {
             guard !rawScope.isEmpty else { continue }
 
             let scope = rawScope
-                .replacingOccurrences(of: " Models", with: "")
-                .replacingOccurrences(of: " models", with: "")
-                .replacingOccurrences(of: " Models", with: "")
+                .replacingOccurrences(of: " models", with: "", options: .caseInsensitive)
 
             let rawLabel = parts[1].trimmingCharacters(in: .whitespaces)
             let lowerLabel = rawLabel.lowercased()
@@ -79,7 +86,10 @@ public enum AntigravityClient {
             let dateString = parts[3].trimmingCharacters(in: .whitespaces)
             let resetDate = parseDate(dateString)
 
-            let windowId = "agy-\(scope.lowercased().replacingOccurrences(of: " ", with: "-"))-\(label.lowercased().replacingOccurrences(of: " ", with: "-"))"
+            let scopeKey = scope.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            let labelKey = rawLabel.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            let windowId = "agy-\(scopeKey)-\(labelKey)"
+            guard seenWindowIDs.insert(windowId).inserted else { continue }
 
             windows.append(UsageWindow(
                 id: windowId,

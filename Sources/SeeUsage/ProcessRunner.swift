@@ -73,9 +73,10 @@ public enum ProcessRunner {
             if fm.isExecutableFile(atPath: expanded) {
                 return expanded
             }
-            if let found = findInKnownPaths(named: override) {
-                return found
+            if override.contains("/") {
+                return nil
             }
+            return findInKnownPaths(named: override)
         }
 
         return findInKnownPaths(named: name)

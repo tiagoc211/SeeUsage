@@ -72,6 +72,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(notificationsEnabled, forKey: "notificationsEnabled")
             UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled")
+            postPreferencesChanged()
         }
     }
 
@@ -79,6 +80,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(notifyOnCritical, forKey: "notifyOnCritical")
             UserDefaults.standard.set(notifyOnCritical, forKey: "notifyOnCritical")
+            postPreferencesChanged()
         }
     }
 
@@ -86,6 +88,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(criticalThresholdPercent, forKey: "criticalThresholdPercent")
             UserDefaults.standard.set(criticalThresholdPercent, forKey: "criticalThresholdPercent")
+            postPreferencesChanged()
         }
     }
 
@@ -93,6 +96,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(notifyOnReset, forKey: "notifyOnReset")
             UserDefaults.standard.set(notifyOnReset, forKey: "notifyOnReset")
+            postPreferencesChanged()
         }
     }
 
@@ -100,6 +104,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(notificationSoundEnabled, forKey: "notificationSoundEnabled")
             UserDefaults.standard.set(notificationSoundEnabled, forKey: "notificationSoundEnabled")
+            postPreferencesChanged()
         }
     }
 
@@ -159,6 +164,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(refreshIntervalMinutes, forKey: "refreshIntervalMinutes")
             UserDefaults.standard.set(refreshIntervalMinutes, forKey: "refreshIntervalMinutes")
+            postPreferencesChanged()
         }
     }
 
@@ -166,6 +172,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(codexExecutableOverride, forKey: "codexExecutableOverride")
             UserDefaults.standard.set(codexExecutableOverride, forKey: "codexExecutableOverride")
+            postPreferencesChanged()
         }
     }
 
@@ -173,6 +180,7 @@ public final class SettingsStore {
         didSet {
             Self.defaults.set(antigravityExecutableOverride, forKey: "antigravityExecutableOverride")
             UserDefaults.standard.set(antigravityExecutableOverride, forKey: "antigravityExecutableOverride")
+            postPreferencesChanged()
         }
     }
 
@@ -322,6 +330,45 @@ public final class SettingsStore {
                 self.hudOpacity = opacity
             }
         }
+
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("app.seeusage.preferencesChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let prefs = Self.defaults
+            let fallback = UserDefaults.standard
+
+            if let value = prefs.object(forKey: "notificationsEnabled") as? Bool,
+               value != self.notificationsEnabled {
+                self.notificationsEnabled = value
+                if value {
+                    Task { @MainActor in NotificationManager.shared.requestAuthorization() }
+                }
+            }
+            if let value = prefs.object(forKey: "notifyOnCritical") as? Bool,
+               value != self.notifyOnCritical { self.notifyOnCritical = value }
+            let threshold = prefs.integer(forKey: "criticalThresholdPercent")
+            if threshold > 0, threshold != self.criticalThresholdPercent { self.criticalThresholdPercent = threshold }
+            if let value = prefs.object(forKey: "notifyOnReset") as? Bool,
+               value != self.notifyOnReset { self.notifyOnReset = value }
+            if let value = prefs.object(forKey: "notificationSoundEnabled") as? Bool,
+               value != self.notificationSoundEnabled { self.notificationSoundEnabled = value }
+            let interval = prefs.integer(forKey: "refreshIntervalMinutes")
+            if interval > 0, interval != self.refreshIntervalMinutes { self.refreshIntervalMinutes = interval }
+            if let value = prefs.string(forKey: "codexExecutableOverride"), value != self.codexExecutableOverride {
+                self.codexExecutableOverride = value
+            }
+            if let value = prefs.string(forKey: "antigravityExecutableOverride"), value != self.antigravityExecutableOverride {
+                self.antigravityExecutableOverride = value
+            }
+            if let data = prefs.data(forKey: "codexProfiles") ?? fallback.data(forKey: "codexProfiles"),
+               let profiles = try? JSONDecoder().decode([UsageProfile].self, from: data),
+               profiles != self.codexProfiles {
+                self.codexProfiles = profiles
+            }
+        }
     }
 
     public func selectTheme(_ id: String) {
@@ -355,6 +402,20 @@ public final class SettingsStore {
             Self.defaults.set(data, forKey: "codexProfiles")
             UserDefaults.standard.set(data, forKey: "codexProfiles")
         }
+        postPreferencesChanged()
+        Task { @MainActor in
+            UsageStore.shared.pruneInactiveSnapshots()
+            await UsageStore.shared.refresh(forceAfterCurrent: true)
+        }
+    }
+
+    private func postPreferencesChanged() {
+        DistributedNotificationCenter.default().postNotificationName(
+            NSNotification.Name("app.seeusage.preferencesChanged"),
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true
+        )
     }
 
     public func addProfile(name: String, path: String) {

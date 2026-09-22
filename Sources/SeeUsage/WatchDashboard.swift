@@ -17,24 +17,24 @@ public enum WatchDashboard {
 
         // Set up raw terminal mode
         var originalTermios = termios()
-        tcgetattr(STDIN_FILENO, &originalTermios)
+        guard tcgetattr(STDIN_FILENO, &originalTermios) == 0 else {
+            return
+        }
 
         var raw = originalTermios
-        raw.c_lflag &= ~UInt(ECHO | ICANON)
-        raw.c_cc.16 = 0 // VMIN = 0 (non-blocking read)
-        raw.c_cc.17 = 1 // VTIME = 1 (100ms timeout)
-        tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw)
+        raw.c_lflag &= ~UInt(ECHO | ICANON | ISIG)
+        withUnsafeMutablePointer(to: &raw.c_cc) { controls in
+            let values = UnsafeMutableRawPointer(controls).assumingMemoryBound(to: cc_t.self)
+            values[Int(VMIN)] = 0
+            values[Int(VTIME)] = 1
+        }
+        guard tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == 0 else {
+            return
+        }
 
         // Enter alternate screen buffer and hide cursor
         print("\u{001B}[?1049h\u{001B}[?25l", terminator: "")
         fflush(stdout)
-
-        // Register SIGINT handler to ensure terminal restoration
-        signal(SIGINT) { _ in
-            print("\u{001B}[?25h\u{001B}[?1049l", terminator: "")
-            fflush(stdout)
-            exit(0)
-        }
 
         defer {
             // Restore terminal
@@ -51,6 +51,7 @@ public enum WatchDashboard {
         var shouldExit = false
         var statusNotice = ""
         var noticeUntil = Date()
+        var resetConfirmationUntil: Date?
 
         // Initial background refresh if empty
         if store.snapshots.isEmpty {
@@ -89,6 +90,15 @@ public enum WatchDashboard {
                     shouldExit = true
 
                 case 99, 67: // 'c', 'C' (Consume Banked Reset)
+                    if let deadline = resetConfirmationUntil, deadline > Date() {
+                        resetConfirmationUntil = nil
+                    } else {
+                        let deadline = Date().addingTimeInterval(5)
+                        resetConfirmationUntil = deadline
+                        statusNotice = "Press c again within 5 seconds to use a reset credit."
+                        noticeUntil = deadline
+                        break
+                    }
                     let banked = AnalyticsManager.shared.getAvailableBankedCredits(
                         from: store.snapshots,
                         profiles: settings.codexProfiles
@@ -102,7 +112,7 @@ public enum WatchDashboard {
                         Task {
                             let res = await store.consumeBankedReset(for: first.profile, creditId: first.credit.serverCreditID)
                             isRefreshing = false
-                            statusNotice = res.success ? "⚡ Reset activated! Quota restored to 100%" : "✗ \(res.message)"
+                            statusNotice = res.success ? "⚡ Reset processed. Usage refreshed." : "✗ \(res.message)"
                             noticeUntil = Date().addingTimeInterval(3.5)
                         }
                     } else {
@@ -146,12 +156,6 @@ public enum WatchDashboard {
 
                 case 104, 72: // 'h', 'H' (Toggle Desktop HUD)
                     settings.hudEnabled.toggle()
-                    DistributedNotificationCenter.default().postNotificationName(
-                        NSNotification.Name("app.seeusage.toggleHUD"),
-                        object: nil,
-                        userInfo: nil,
-                        deliverImmediately: true
-                    )
                     statusNotice = "Desktop HUD: \(settings.hudEnabled ? "Visible" : "Hidden")"
                     noticeUntil = Date().addingTimeInterval(2.0)
 
@@ -235,7 +239,7 @@ public enum WatchDashboard {
             lines.append(padBoxLine(emptyLine, visibleLength: stripAnsi(emptyLine).count, totalWidth: width, borderAnsi: accentAnsi))
         } else {
             for profile in settings.codexProfiles {
-                let alias = CLIHandler.profileAlias(name: profile.name)
+                let alias = CLIHandler.profileAlias(for: profile, among: settings.codexProfiles)
                 let snap = store.snapshots[profile.id]
                 let planTag = snap?.plan.map { " [\(dimAnsi)\($0.lowercased())\(resetAnsi)]" } ?? ""
                 let errTag = snap?.error.map { " \u{001B}[31m(\($0))\(resetAnsi)" } ?? ""
@@ -251,13 +255,15 @@ public enum WatchDashboard {
                         let bar = progressBar(percent: pct, width: 14)
                         let countdown = countdownString(until: window.resetsAt)
 
-                        let labelPadded = window.label.padding(toLength: 8, withPad: " ", startingAt: 0)
+                        let windowLabel = window.scope.map { "\($0) \(window.label)" } ?? window.label
+                        let labelPadded = windowLabel.padding(toLength: 16, withPad: " ", startingAt: 0)
                         let wLine = "     \(dimAnsi)\(labelPadded)\(resetAnsi) \(boldAnsi)\(colorAnsi)\(pctStr)\(resetAnsi) \(colorAnsi)\(bar)\(resetAnsi)  \(dimAnsi)Reset in\(resetAnsi) \(boldAnsi)\(countdown)\(resetAnsi)"
                         lines.append(padBoxLine(wLine, visibleLength: stripAnsi(wLine).count, totalWidth: width, borderAnsi: accentAnsi))
                     }
-                    if let available = snap?.availableResetCredits, available > 0 {
+                    if snap?.error == nil, snap?.isStale == false,
+                       let available = snap?.availableResetCredits, available > 0 {
                         let planStr = (snap?.plan ?? "Plus").capitalized
-                        let bLine = "     \u{001B}[38;2;250;158;46m⚡ \(available) banked reset [\(planStr)]\u{001B}[0m \(dimAnsi)• press 'c' to redeem\(resetAnsi)"
+                        let bLine = "     \u{001B}[38;2;250;158;46m⚡ \(available) banked reset [\(planStr)]\u{001B}[0m \(dimAnsi)• press 'c' twice to redeem\(resetAnsi)"
                         lines.append(padBoxLine(bLine, visibleLength: stripAnsi(bLine).count, totalWidth: width, borderAnsi: accentAnsi))
                     }
                 } else if snap?.error == nil {
@@ -320,7 +326,7 @@ public enum WatchDashboard {
         lines.append("\(accentAnsi)├\(String(repeating: "─", count: width - 2))┤\(resetAnsi)")
 
         // 4. Hotkeys Bar
-        let hotkeys = " HOTKEYS: \(boldAnsi)[r]\(resetAnsi) Sync  \(boldAnsi)[c]\(resetAnsi) Redeem  \(boldAnsi)[t]\(resetAnsi) Theme  \(boldAnsi)[m]\(resetAnsi) Mode  \(boldAnsi)[q]\(resetAnsi) Quit"
+        let hotkeys = " HOTKEYS: \(boldAnsi)[r]\(resetAnsi) Sync  \(boldAnsi)[c]\(resetAnsi) Confirm reset  \(boldAnsi)[t]\(resetAnsi) Theme  \(boldAnsi)[m]\(resetAnsi) Mode  \(boldAnsi)[q]\(resetAnsi) Quit"
         lines.append(padBoxLine(hotkeys, visibleLength: stripAnsi(hotkeys).count, totalWidth: width, borderAnsi: accentAnsi))
 
         // Bottom Border Box

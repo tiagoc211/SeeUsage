@@ -34,9 +34,15 @@ final class AnalyticsTests: XCTestCase {
         manager.clearHistory()
         XCTAssertEqual(manager.snapshots.count, 0)
 
-        // Seed demo data
-        manager.seedDemoDataIfEmpty()
-        XCTAssertTrue(manager.snapshots.count > 0)
+        let profileID = UUID()
+        let resetAt = Date().addingTimeInterval(3600)
+        manager.recordSnapshots([profileID: UsageSnapshot(profileID: profileID, windows: [
+            UsageWindow(id: "test-window", label: "5 h", remainingPercent: 90, durationMinutes: 300, resetsAt: resetAt)
+        ])])
+        manager.recordSnapshots([profileID: UsageSnapshot(profileID: profileID, windows: [
+            UsageWindow(id: "test-window", label: "5 h", remainingPercent: 80, durationMinutes: 300, resetsAt: resetAt)
+        ])])
+        XCTAssertEqual(manager.snapshots.count, 2)
 
         // Compute metrics
         let metrics = manager.computeMetrics(days: 7)
@@ -131,8 +137,15 @@ final class AnalyticsTests: XCTestCase {
         manager.clearResets()
         XCTAssertEqual(manager.resetEvents.count, 0)
 
-        // Seed demo reset events
-        manager.seedDemoResetDataIfEmpty()
+        manager.recordResetEvent(ResetEvent(
+            profileID: UUID(),
+            profileName: "Test",
+            service: "Codex",
+            windowLabel: "5 h",
+            durationMinutes: 300,
+            quotaBefore: 15,
+            quotaAfter: 100
+        ))
         XCTAssertGreaterThan(manager.resetEvents.count, 0)
 
         let events = manager.getResetEvents(limit: 10)
@@ -192,15 +205,11 @@ final class AnalyticsTests: XCTestCase {
         let handledResets = await CLIHandler.handle(arguments: ["seeusage", "resets"])
         XCTAssertTrue(handledResets)
 
-        let handledSeed = await CLIHandler.handle(arguments: ["seeusage", "resets", "seed"])
-        XCTAssertTrue(handledSeed)
-        XCTAssertGreaterThan(AnalyticsManager.shared.resetEvents.count, 0)
+        let handledJSON = await CLIHandler.handle(arguments: ["seeusage", "resets", "json"])
+        XCTAssertTrue(handledJSON)
 
         let handledCSV = await CLIHandler.handle(arguments: ["seeusage", "resets", "csv"])
         XCTAssertTrue(handledCSV)
-
-        let handledJSON = await CLIHandler.handle(arguments: ["seeusage", "resets", "json"])
-        XCTAssertTrue(handledJSON)
 
         let handledClear = await CLIHandler.handle(arguments: ["seeusage", "resets", "clear"])
         XCTAssertTrue(handledClear)

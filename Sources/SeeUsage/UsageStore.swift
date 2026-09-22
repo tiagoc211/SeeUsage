@@ -77,7 +77,18 @@ public final class UsageStore {
 
     public init() {
         loadCache()
+        observeSharedCacheUpdates()
         startTimer()
+    }
+
+    private func observeSharedCacheUpdates() {
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("app.seeusage.cacheChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.loadCache() }
+        }
     }
 
     public func loadCache() {
@@ -85,7 +96,10 @@ public final class UsageStore {
         decoder.dateDecodingStrategy = .iso8601
 
         // 1. Try reading from ~/.config/seeusage/cache.json
-        if let diskData = try? Data(contentsOf: Self.sharedCacheURL),
+        let diskData = SharedFileLock.withExclusiveLock(for: Self.sharedCacheURL) {
+            try? Data(contentsOf: Self.sharedCacheURL)
+        }
+        if let diskData,
            let cached = try? decoder.decode(SharedUsageCache.self, from: diskData) {
             self.snapshots = cached.snapshots
             self.lastUpdated = cached.timestamp
@@ -110,10 +124,35 @@ public final class UsageStore {
             UserDefaults.standard.set(encoded, forKey: Self.cacheKey)
         }
 
-        let cacheObj = SharedUsageCache(timestamp: lastUpdated ?? Date(), snapshots: snapshots)
-        if let sharedData = try? encoder.encode(cacheObj) {
-            try? sharedData.write(to: Self.sharedCacheURL, options: .atomic)
+        SharedFileLock.withExclusiveLock(for: Self.sharedCacheURL) {
+            var mergedSnapshots: [UUID: UsageSnapshot] = [:]
+            var cacheTimestamp = lastUpdated ?? Date()
+            let cacheDecoder = JSONDecoder()
+            cacheDecoder.dateDecodingStrategy = .iso8601
+            if let existingData = try? Data(contentsOf: Self.sharedCacheURL),
+               let existing = try? cacheDecoder.decode(SharedUsageCache.self, from: existingData) {
+                mergedSnapshots = existing.snapshots
+                cacheTimestamp = max(cacheTimestamp, existing.timestamp)
+            }
+
+            let activeIDs = Set(SettingsStore.shared.codexProfiles.map(\.id) + [SettingsStore.antigravityProfileID])
+            mergedSnapshots = mergedSnapshots.filter { activeIDs.contains($0.key) }
+            for (id, snapshot) in snapshots where activeIDs.contains(id) {
+                if let existing = mergedSnapshots[id], existing.fetchedAt > snapshot.fetchedAt { continue }
+                mergedSnapshots[id] = snapshot
+            }
+
+            let cacheObj = SharedUsageCache(timestamp: cacheTimestamp, snapshots: mergedSnapshots)
+            if let sharedData = try? encoder.encode(cacheObj) {
+                try? sharedData.write(to: Self.sharedCacheURL, options: .atomic)
+            }
         }
+        DistributedNotificationCenter.default().postNotificationName(
+            NSNotification.Name("app.seeusage.cacheChanged"),
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true
+        )
     }
 
     public func startTimer() {
@@ -167,6 +206,16 @@ public final class UsageStore {
         isRefreshing = false
     }
 
+    public func pruneInactiveSnapshots() {
+        let activeIDs = Set(SettingsStore.shared.codexProfiles.map(\.id) + [SettingsStore.antigravityProfileID])
+        NotificationManager.shared.pruneInactiveProfiles(keeping: activeIDs)
+        let previousCount = snapshots.count
+        snapshots = snapshots.filter { activeIDs.contains($0.key) }
+        guard snapshots.count != previousCount else { return }
+        saveCache()
+        NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
+    }
+
     private func performRefresh() async {
         let settings = SettingsStore.shared
         let codexPath = ProcessRunner.resolveExecutable(named: "codex", overridePath: settings.codexExecutableOverride)
@@ -200,6 +249,8 @@ public final class UsageStore {
             }
 
             for await (id, snapshot) in group {
+                let stillActive = id == agyProfileID || SettingsStore.shared.codexProfiles.contains(where: { $0.id == id })
+                guard stillActive else { continue }
                 if let err = snapshot.error, let old = self.snapshots[id] {
                     self.snapshots[id] = UsageSnapshot(
                         profileID: id,
@@ -226,7 +277,7 @@ public final class UsageStore {
     // MARK: - Banked Reset Consumption
     public func consumeBankedReset(for profile: UsageProfile, creditId: String?) async -> (success: Bool, message: String) {
         await refresh(forceAfterCurrent: true)
-        guard let snapshot = snapshots[profile.id], snapshot.error == nil else {
+        guard let snapshot = snapshots[profile.id], snapshot.error == nil, !snapshot.isStale else {
             return (false, snapshots[profile.id]?.error ?? "No current usage data for this profile.")
         }
 
@@ -251,8 +302,31 @@ public final class UsageStore {
             executable: exe
         )
 
+        // A timeout can happen after the server applied the operation, so always
+        // reconcile local state after sending a consume request.
+        await refresh(forceAfterCurrent: true)
         if res.success {
-            await refresh(forceAfterCurrent: true)
+            let updated = snapshots[profile.id]
+            let analytics = AnalyticsManager.shared
+            for after in updated?.windows ?? [] {
+                guard let before = snapshot.windows.first(where: { $0.id == after.id }),
+                      let beforePercent = before.remainingPercent,
+                      let afterPercent = after.remainingPercent,
+                      afterPercent > beforePercent
+                else { continue }
+                analytics.recordResetEvent(ResetEvent(
+                    timestamp: Date(),
+                    profileID: profile.id,
+                    profileName: profile.name,
+                    service: "Codex",
+                    scope: after.scope,
+                    windowLabel: after.label,
+                    durationMinutes: after.durationMinutes,
+                    quotaBefore: beforePercent,
+                    quotaAfter: afterPercent,
+                    nextResetAt: after.resetsAt
+                ))
+            }
         }
 
         return res

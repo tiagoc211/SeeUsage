@@ -3,15 +3,38 @@ import Observation
 
 // MARK: - Quota Sample Record
 public struct QuotaSampleRecord: Codable, Sendable, Identifiable {
-    public var id: String { "\(profileID.uuidString)-\(scope ?? "")-\(windowLabel)" }
+    public var id: String { "\(profileID.uuidString)-\(windowID ?? "\(scope ?? "")-\(windowLabel)")" }
     public let timestamp: Date
     public let profileID: UUID
     public let profileName: String
     public let service: String
     public let scope: String?
     public let windowLabel: String
+    public let windowID: String?
     public let remainingPercent: Double
     public let resetsAt: Date?
+
+    public init(
+        timestamp: Date,
+        profileID: UUID,
+        profileName: String,
+        service: String,
+        scope: String?,
+        windowLabel: String,
+        windowID: String? = nil,
+        remainingPercent: Double,
+        resetsAt: Date?
+    ) {
+        self.timestamp = timestamp
+        self.profileID = profileID
+        self.profileName = profileName
+        self.service = service
+        self.scope = scope
+        self.windowLabel = windowLabel
+        self.windowID = windowID
+        self.remainingPercent = remainingPercent
+        self.resetsAt = resetsAt
+    }
 
     public var usedPercent: Double {
         max(0.0, min(100.0, 100.0 - remainingPercent))
@@ -36,9 +59,10 @@ public struct HourlyConsumption: Identifiable, Sendable {
 }
 
 public struct DailyConsumption: Identifiable, Sendable {
-    public var id: String { dayKey }
+    public var id: String { "\(dayKey)-\(profileID.uuidString)" }
     public let dayKey: String // "yyyy-MM-dd"
     public let date: Date
+    public let profileID: UUID
     public let profileName: String
     public let consumptionPercent: Double
 
@@ -93,8 +117,23 @@ public final class AnalyticsManager {
         return folder.appendingPathComponent("resets.json")
     }
 
+    private static var historyClearMarkerURL: URL {
+        historyFileURL.deletingLastPathComponent().appendingPathComponent("history-cleared-at")
+    }
+
+    private static var resetsClearMarkerURL: URL {
+        resetsFileURL.deletingLastPathComponent().appendingPathComponent("resets-cleared-at")
+    }
+
     private init() {
         loadHistory()
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("app.seeusage.historyChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.loadHistory() }
+        }
     }
 
     // MARK: - Persistence
@@ -102,15 +141,21 @@ public final class AnalyticsManager {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        if let data = try? Data(contentsOf: Self.historyFileURL),
+        let historyData = SharedFileLock.withExclusiveLock(for: Self.historyFileURL) {
+            try? Data(contentsOf: Self.historyFileURL)
+        }
+        if let data = historyData,
            let list = try? decoder.decode([QuotaHistorySnapshot].self, from: data) {
-            self.snapshots = list
-            self.lastRecordedAt = list.last?.timestamp
+            self.snapshots = list.sorted { $0.timestamp < $1.timestamp }
+            self.lastRecordedAt = self.snapshots.last?.timestamp
         }
 
-        if let data = try? Data(contentsOf: Self.resetsFileURL),
+        let resetData = SharedFileLock.withExclusiveLock(for: Self.resetsFileURL) {
+            try? Data(contentsOf: Self.resetsFileURL)
+        }
+        if let data = resetData,
            let events = try? decoder.decode([ResetEvent].self, from: data) {
-            self.resetEvents = events
+            self.resetEvents = events.sorted { $0.timestamp > $1.timestamp }
         }
     }
 
@@ -118,43 +163,66 @@ public final class AnalyticsManager {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
 
-        // Keep at most 3,000 snapshots (~30-60 days at regular polling)
-        let trimmed: [QuotaHistorySnapshot]
-        if snapshots.count > 3000 {
-            trimmed = Array(snapshots.suffix(3000))
-        } else {
-            trimmed = snapshots
+        SharedFileLock.withExclusiveLock(for: Self.historyFileURL) {
+            var byTimestamp: [Double: QuotaHistorySnapshot] = [:]
+            if let data = try? Data(contentsOf: Self.historyFileURL),
+               let existing = try? decoder.decode([QuotaHistorySnapshot].self, from: data) {
+                existing.forEach { byTimestamp[$0.id] = $0 }
+            }
+            snapshots.forEach { byTimestamp[$0.id] = $0 }
+            if let clearDate = Self.readClearMarker(Self.historyClearMarkerURL) {
+                byTimestamp = byTimestamp.filter { $0.value.timestamp > clearDate }
+            }
+            snapshots = byTimestamp.values.sorted { $0.timestamp < $1.timestamp }.suffix(3000)
+                .map { $0 }
+            if let data = try? encoder.encode(snapshots) {
+                try? data.write(to: Self.historyFileURL, options: .atomic)
+            }
         }
 
-        if let data = try? encoder.encode(trimmed) {
-            try? data.write(to: Self.historyFileURL, options: .atomic)
+        SharedFileLock.withExclusiveLock(for: Self.resetsFileURL) {
+            var byID: [UUID: ResetEvent] = [:]
+            if let data = try? Data(contentsOf: Self.resetsFileURL),
+               let existing = try? decoder.decode([ResetEvent].self, from: data) {
+                existing.forEach { byID[$0.id] = $0 }
+            }
+            resetEvents.forEach { byID[$0.id] = $0 }
+            if let clearDate = Self.readClearMarker(Self.resetsClearMarkerURL) {
+                byID = byID.filter { $0.value.timestamp > clearDate }
+            }
+            resetEvents = byID.values.sorted { $0.timestamp > $1.timestamp }.prefix(1000).map { $0 }
+            if let data = try? encoder.encode(resetEvents) {
+                try? data.write(to: Self.resetsFileURL, options: .atomic)
+            }
         }
-
-        // Keep at most 1,000 reset events
-        let trimmedResets: [ResetEvent]
-        if resetEvents.count > 1000 {
-            trimmedResets = Array(resetEvents.prefix(1000))
-        } else {
-            trimmedResets = resetEvents
-        }
-
-        if let data = try? encoder.encode(trimmedResets) {
-            try? data.write(to: Self.resetsFileURL, options: .atomic)
-        }
+        postHistoryChanged()
     }
 
     public func clearHistory() {
         snapshots.removeAll()
         resetEvents.removeAll()
         lastRecordedAt = nil
-        try? FileManager.default.removeItem(at: Self.historyFileURL)
-        try? FileManager.default.removeItem(at: Self.resetsFileURL)
+        SharedFileLock.withExclusiveLock(for: Self.historyFileURL) {
+            Self.writeClearMarker(Self.historyClearMarkerURL)
+            try? FileManager.default.removeItem(at: Self.historyFileURL)
+        }
+        SharedFileLock.withExclusiveLock(for: Self.resetsFileURL) {
+            Self.writeClearMarker(Self.resetsClearMarkerURL)
+            try? FileManager.default.removeItem(at: Self.resetsFileURL)
+        }
+        postHistoryChanged()
     }
 
     public func clearResets() {
         resetEvents.removeAll()
-        try? FileManager.default.removeItem(at: Self.resetsFileURL)
+        SharedFileLock.withExclusiveLock(for: Self.resetsFileURL) {
+            Self.writeClearMarker(Self.resetsClearMarkerURL)
+            try? FileManager.default.removeItem(at: Self.resetsFileURL)
+        }
+        postHistoryChanged()
     }
 
     // MARK: - Recording Snapshots & Detecting Resets
@@ -187,6 +255,7 @@ public final class AnalyticsManager {
                     service: service,
                     scope: window.scope,
                     windowLabel: window.label,
+                    windowID: window.id,
                     remainingPercent: pct,
                     resetsAt: window.resetsAt
                 ))
@@ -199,12 +268,12 @@ public final class AnalyticsManager {
         if let lastSnapshot = snapshots.last {
             var lastRecordsMap: [String: QuotaSampleRecord] = [:]
             for r in lastSnapshot.records {
-                let key = "\(r.profileID.uuidString):\(r.scope ?? ""):\(r.windowLabel)"
+                let key = r.id
                 lastRecordsMap[key] = r
             }
 
             for newRecord in records {
-                let key = "\(newRecord.profileID.uuidString):\(newRecord.scope ?? ""):\(newRecord.windowLabel)"
+                let key = newRecord.id
                 guard let oldRecord = lastRecordsMap[key] else { continue }
 
                 guard newRecord.remainingPercent > oldRecord.remainingPercent else { continue }
@@ -217,9 +286,7 @@ public final class AnalyticsManager {
                 }
 
                 if resetCycleAdvanced {
-                    let win = usageSnapshots[newRecord.profileID]?.windows.first(where: {
-                        $0.label == newRecord.windowLabel && $0.scope == newRecord.scope
-                    })
+                    let win = usageSnapshots[newRecord.profileID]?.windows.first(where: { $0.id == newRecord.windowID })
                     let duration = win?.durationMinutes
 
                     // Avoid duplicate logging within 2 minutes for the same window
@@ -254,7 +321,9 @@ public final class AnalyticsManager {
         // Deduplicate snapshots against very recent recording (under 45 seconds) unless quota changed
         if let last = snapshots.last,
            now.timeIntervalSince(last.timestamp) < 45.0 {
-            let lastRecordsMap = Dictionary(uniqueKeysWithValues: last.records.map { ($0.id, $0.remainingPercent) })
+            let lastRecordsMap = last.records.reduce(into: [String: Double]()) { map, record in
+                map[record.id] = record.remainingPercent
+            }
             let hasChange = records.contains { record in
                 if let oldPct = lastRecordsMap[record.id] {
                     return abs(oldPct - record.remainingPercent) > 0.001
@@ -279,6 +348,7 @@ public final class AnalyticsManager {
         var results: [UpcomingResetInfo] = []
 
         for (profileID, snapshot) in snapshotsToUse {
+            guard snapshot.error == nil, !snapshot.isStale else { continue }
             let profileName: String
             let service: String
 
@@ -301,6 +371,7 @@ public final class AnalyticsManager {
                     service: service,
                     scope: window.scope,
                     windowLabel: window.label,
+                    windowID: window.id,
                     durationMinutes: window.durationMinutes,
                     currentRemainingPercent: window.remainingPercent,
                     resetsAt: resetDate
@@ -318,6 +389,7 @@ public final class AnalyticsManager {
                     service: record.service,
                     scope: record.scope,
                     windowLabel: record.windowLabel,
+                    windowID: record.windowID,
                     durationMinutes: nil,
                     currentRemainingPercent: record.remainingPercent,
                     resetsAt: resetDate
@@ -366,12 +438,12 @@ public final class AnalyticsManager {
 
             var prevMap: [String: Double] = [:]
             for r in prev.records {
-                let key = "\(r.profileID.uuidString):\(r.scope ?? ""):\(r.windowLabel)"
+                let key = r.id
                 prevMap[key] = r.remainingPercent
             }
 
             for r in curr.records {
-                let key = "\(r.profileID.uuidString):\(r.scope ?? ""):\(r.windowLabel)"
+                let key = r.id
                 if let p = prevMap[key], p >= r.remainingPercent {
                     let consumed = p - r.remainingPercent
                     if consumed > 0 {
@@ -394,7 +466,7 @@ public final class AnalyticsManager {
 
         guard relevant.count >= 2 else { return [] }
 
-        var dayProfileSums: [String: [String: Double]] = [:]
+        var dayProfileSums: [String: [UUID: (name: String, total: Double)]] = [:]
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
 
@@ -408,17 +480,18 @@ public final class AnalyticsManager {
 
             var prevMap: [String: Double] = [:]
             for r in prev.records {
-                let key = "\(r.profileID.uuidString):\(r.scope ?? ""):\(r.windowLabel)"
+                let key = r.id
                 prevMap[key] = r.remainingPercent
             }
 
             for r in curr.records {
-                let key = "\(r.profileID.uuidString):\(r.scope ?? ""):\(r.windowLabel)"
+                let key = r.id
                 if let p = prevMap[key], p >= r.remainingPercent {
                     let consumed = p - r.remainingPercent
                     if consumed > 0 {
-                        if dayProfileSums[dayKey] == nil { dayProfileSums[dayKey] = [:] }
-                        dayProfileSums[dayKey]?[r.profileName, default: 0.0] += consumed
+                        var current = dayProfileSums[dayKey]?[r.profileID] ?? (name: r.profileName, total: 0.0)
+                        current.total += consumed
+                        dayProfileSums[dayKey, default: [:]][r.profileID] = current
                     }
                 }
             }
@@ -430,12 +503,13 @@ public final class AnalyticsManager {
         for d in sortedDays {
             let date = dateMap[d] ?? Date()
             if let profiles = dayProfileSums[d] {
-                for (pName, consumed) in profiles {
+                for (profileID, profile) in profiles {
                     results.append(DailyConsumption(
                         dayKey: d,
                         date: date,
-                        profileName: pName,
-                        consumptionPercent: consumed
+                        profileID: profileID,
+                        profileName: profile.name,
+                        consumptionPercent: profile.total
                     ))
                 }
             }
@@ -459,12 +533,12 @@ public final class AnalyticsManager {
 
             var prevMap: [String: Double] = [:]
             for r in prev.records {
-                let key = "\(r.profileID.uuidString):\(r.scope ?? ""):\(r.windowLabel)"
+                let key = r.id
                 prevMap[key] = r.remainingPercent
             }
 
             for r in curr.records {
-                let key = "\(r.profileID.uuidString):\(r.scope ?? ""):\(r.windowLabel)"
+                let key = r.id
                 if let p = prevMap[key], p >= r.remainingPercent {
                     let consumed = p - r.remainingPercent
                     if consumed > 0 {
@@ -535,7 +609,9 @@ public final class AnalyticsManager {
             for r in snapshot.records {
                 let resetStr = r.resetsAt.map { dateFormatter.string(from: $0) } ?? ""
                 let scopeStr = r.scope ?? ""
-                csv += "\"\(timeStr)\",\"\(r.profileName)\",\"\(r.service)\",\"\(scopeStr)\",\"\(r.windowLabel)\",\(r.remainingPercent),\"\(resetStr)\"\n"
+                csv += [timeStr, r.profileName, r.service, scopeStr, r.windowLabel]
+                    .map(Self.csvField).joined(separator: ",")
+                csv += ",\(r.remainingPercent),\(Self.csvField(resetStr))\n"
             }
         }
         return csv
@@ -560,7 +636,9 @@ public final class AnalyticsManager {
             let timeStr = dateFormatter.string(from: event.timestamp)
             let nextStr = event.nextResetAt.map { dateFormatter.string(from: $0) } ?? ""
             let scopeStr = event.scope ?? ""
-            csv += "\"\(timeStr)\",\"\(event.profileName)\",\"\(event.service)\",\"\(scopeStr)\",\"\(event.windowLabel)\",\(event.quotaBefore),\(event.quotaAfter),\(event.quotaRestored),\"\(nextStr)\"\n"
+            csv += [timeStr, event.profileName, event.service, scopeStr, event.windowLabel]
+                .map(Self.csvField).joined(separator: ",")
+            csv += ",\(event.quotaBefore),\(event.quotaAfter),\(event.quotaRestored),\(Self.csvField(nextStr))\n"
         }
         return csv
     }
@@ -583,7 +661,7 @@ public final class AnalyticsManager {
     ) -> [(profile: UsageProfile, credit: BankedResetCredit)] {
         var results: [(profile: UsageProfile, credit: BankedResetCredit)] = []
         for profile in profiles {
-            guard let snap = snapshots[profile.id] else { continue }
+            guard let snap = snapshots[profile.id], snap.error == nil, !snap.isStale else { continue }
             for credit in snap.bankedCredits where credit.status.lowercased() == "available" {
                 results.append((profile: profile, credit: credit))
             }
@@ -593,7 +671,41 @@ public final class AnalyticsManager {
 
     /// Explicitly record a reset event (e.g. from banked reset consumption)
     public func recordResetEvent(_ event: ResetEvent) {
+        let duplicate = resetEvents.contains {
+            $0.profileID == event.profileID &&
+            $0.windowLabel == event.windowLabel &&
+            $0.scope == event.scope &&
+            abs($0.timestamp.timeIntervalSince(event.timestamp)) < 120
+        }
+        guard !duplicate else { return }
         resetEvents.insert(event, at: 0)
         saveHistory()
+    }
+
+    private static func csvField(_ value: String) -> String {
+        "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+    }
+
+    private static func readClearMarker(_ url: URL) -> Date? {
+        guard let value = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func writeClearMarker(_ url: URL) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let value = formatter.string(from: Date())
+        try? Data(value.utf8).write(to: url, options: .atomic)
+    }
+
+    private func postHistoryChanged() {
+        DistributedNotificationCenter.default().postNotificationName(
+            NSNotification.Name("app.seeusage.historyChanged"),
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true
+        )
     }
 }
