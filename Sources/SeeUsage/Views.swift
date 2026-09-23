@@ -115,7 +115,8 @@ public struct UsagePopoverView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if settings.codexProfiles.isEmpty {
+                    if settings.codexProfiles.isEmpty,
+                       store.snapshots[SettingsStore.antigravityProfileID] == nil {
                         ContentUnavailableView {
                             Label("No Codex profiles", systemImage: "person.crop.circle.badge.questionmark")
                         } description: {
@@ -126,18 +127,15 @@ public struct UsagePopoverView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 150)
                     } else {
-                        ForEach(settings.codexProfiles) { profile in
-                            profileSection(profile: profile, snapshot: store.snapshots[profile.id], provider: "Codex")
-                            Divider()
+                        ForEach(settings.orderedDisplayProfiles) { profile in
+                            if profile.provider == .codex {
+                                profileSection(profile: profile, snapshot: store.snapshots[profile.id], provider: "Codex")
+                                Divider()
+                            } else if let snapshot = store.snapshots[profile.id] {
+                                profileSection(profile: profile, snapshot: snapshot, provider: "Antigravity")
+                                Divider()
+                            }
                         }
-                    }
-
-                    if let antigravity = store.snapshots[SettingsStore.antigravityProfileID] {
-                        profileSection(profile: UsageProfile(
-                            id: SettingsStore.antigravityProfileID,
-                            provider: .antigravity,
-                            name: "Antigravity"
-                        ), snapshot: antigravity, provider: "Antigravity")
                     }
 
                     if store.snapshots.isEmpty && !store.isRefreshing {
@@ -546,6 +544,7 @@ private enum PreferenceTab: String, CaseIterable, Identifiable {
 
 public struct SettingsView: View {
     @Bindable private var settings = SettingsStore.shared
+    @Bindable private var store = UsageStore.shared
     @State private var selectedTab: PreferenceTab
 
     public init(initialTab: SettingsTab = .general) {
@@ -645,7 +644,17 @@ public struct SettingsView: View {
     }
 
     private var profilePreferences: some View {
-        Form {
+        List {
+            Section {
+                ForEach(settings.orderedDisplayProfiles) { profile in
+                    profileOrderRow(profile)
+                }
+            } header: {
+                Text("Shown in SeeUsage")
+            } footer: {
+                Text("Drag profiles to set their order in the main view.")
+            }
+
             Section("Codex profiles") {
                 if settings.codexProfiles.isEmpty {
                     Text("No profiles configured.").foregroundStyle(.secondary)
@@ -673,14 +682,73 @@ public struct SettingsView: View {
                     Label("Add Profile…", systemImage: "plus")
                 }
             }
+
             Section {
                 Text("SeeUsage reads usage from each selected Codex home. Your credentials stay in the Codex configuration folders.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
-        .tabItem { Label("Profiles", systemImage: "person.crop.circle") }
+        .listStyle(.inset)
+    }
+
+    private func profileOrderRow(_ profile: UsageProfile) -> some View {
+        let snapshot = store.snapshots[profile.id]
+        let hasUsableSnapshot = snapshot.map { $0.error == nil } ?? false
+        let primaryWindow = hasUsableSnapshot ? snapshot?.windows.first : nil
+
+        return HStack(spacing: 10) {
+            Image(systemName: profile.provider == .antigravity ? "sparkles" : "person.crop.circle")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(settings.currentTheme.accent)
+                .frame(width: 32, height: 32)
+                .background(settings.currentTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(profile.name)
+                        .font(.system(.body, weight: .medium))
+                    Text(profile.provider == .antigravity ? "Antigravity" : "Codex")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    if snapshot?.isStale == true {
+                        Text("old data")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let window = primaryWindow, let remaining = window.remainingPercent {
+                    HStack(spacing: 8) {
+                        Text([window.scope, window.label].compactMap { $0 }.joined(separator: " · "))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        Text("\(Int(remaining.rounded()))%")
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    ProgressView(value: max(0, min(100, remaining)), total: 100)
+                        .tint(settings.currentTheme.accent)
+                } else {
+                    Text(snapshot?.error == nil
+                        ? (snapshot?.isStale == true ? "No recent quota data" : (store.isRefreshing ? "Updating usage…" : "No quota data yet"))
+                        : "Usage unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 3)
+        .draggable(profile.id.uuidString)
+        .dropDestination(for: String.self) { values, _ in
+            guard let value = values.first,
+                  let draggedProfileID = UUID(uuidString: value) else { return false }
+            settings.moveDisplayProfile(draggedProfileID, relativeTo: profile.id)
+            return true
+        }
     }
 
     private func addProfileFromFolderPicker() {

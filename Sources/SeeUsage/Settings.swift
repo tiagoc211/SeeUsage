@@ -163,6 +163,15 @@ public final class SettingsStore {
         }
     }
 
+    public var profileDisplayOrder: [UUID] {
+        didSet {
+            let values = profileDisplayOrder.map(\.uuidString)
+            Self.defaults.set(values, forKey: "profileDisplayOrder")
+            UserDefaults.standard.set(values, forKey: "profileDisplayOrder")
+            postPreferencesChanged()
+        }
+    }
+
     public init() {
         let prefs = Self.defaults
         let fallback = UserDefaults.standard
@@ -242,16 +251,23 @@ public final class SettingsStore {
             ?? ""
 
         let profileData = prefs.data(forKey: "codexProfiles") ?? fallback.data(forKey: "codexProfiles")
+        let profiles: [UsageProfile]
         if let data = profileData,
-           let profiles = try? JSONDecoder().decode([UsageProfile].self, from: data) {
-            self.codexProfiles = profiles
+           let storedProfiles = try? JSONDecoder().decode([UsageProfile].self, from: data) {
+            profiles = storedProfiles
         } else {
-            self.codexProfiles = Self.discoverCodexProfiles()
-            if let data = try? JSONEncoder().encode(self.codexProfiles) {
+            profiles = Self.discoverCodexProfiles()
+            if let data = try? JSONEncoder().encode(profiles) {
                 prefs.set(data, forKey: "codexProfiles")
                 fallback.set(data, forKey: "codexProfiles")
             }
         }
+        self.codexProfiles = profiles
+
+        let storedDisplayOrder = (prefs.stringArray(forKey: "profileDisplayOrder")
+            ?? fallback.stringArray(forKey: "profileDisplayOrder") ?? [])
+            .compactMap(UUID.init(uuidString:))
+        self.profileDisplayOrder = Self.normalizedDisplayOrder(storedDisplayOrder, profiles: profiles)
 
         // Listen for live theme updates across processes
         DistributedNotificationCenter.default().addObserver(
@@ -347,6 +363,13 @@ public final class SettingsStore {
                profiles != self.codexProfiles {
                 self.codexProfiles = profiles
             }
+            let storedOrder = (prefs.stringArray(forKey: "profileDisplayOrder")
+                ?? fallback.stringArray(forKey: "profileDisplayOrder") ?? [])
+                .compactMap(UUID.init(uuidString:))
+            let normalizedOrder = Self.normalizedDisplayOrder(storedOrder, profiles: self.codexProfiles)
+            if normalizedOrder != self.profileDisplayOrder {
+                self.profileDisplayOrder = normalizedOrder
+            }
         }
     }
 
@@ -381,11 +404,58 @@ public final class SettingsStore {
             Self.defaults.set(data, forKey: "codexProfiles")
             UserDefaults.standard.set(data, forKey: "codexProfiles")
         }
+        let normalizedOrder = Self.normalizedDisplayOrder(profileDisplayOrder, profiles: codexProfiles)
+        if normalizedOrder != profileDisplayOrder {
+            profileDisplayOrder = normalizedOrder
+        }
         postPreferencesChanged()
         Task { @MainActor in
             UsageStore.shared.pruneInactiveSnapshots()
             await UsageStore.shared.refresh(forceAfterCurrent: true)
         }
+    }
+
+    public var orderedDisplayProfiles: [UsageProfile] {
+        let profilesByID = Dictionary(uniqueKeysWithValues: codexProfiles.map { ($0.id, $0) })
+        return profileDisplayOrder.compactMap { id in
+            if let profile = profilesByID[id] { return profile }
+            if id == Self.antigravityProfileID {
+                return UsageProfile(id: id, provider: .antigravity, name: "Antigravity")
+            }
+            return nil
+        }
+    }
+
+    public func moveDisplayProfile(_ profileID: UUID, relativeTo targetID: UUID) {
+        var reordered = orderedDisplayProfiles.map(\.id)
+        guard let sourceIndex = reordered.firstIndex(of: profileID),
+              let targetIndex = reordered.firstIndex(of: targetID),
+              sourceIndex != targetIndex else { return }
+
+        reordered.remove(at: sourceIndex)
+        guard let updatedTargetIndex = reordered.firstIndex(of: targetID) else { return }
+        let insertionIndex = sourceIndex < targetIndex ? updatedTargetIndex + 1 : updatedTargetIndex
+        reordered.insert(profileID, at: insertionIndex)
+
+        if reordered != profileDisplayOrder {
+            profileDisplayOrder = reordered
+        }
+    }
+
+    private static func normalizedDisplayOrder(_ preferred: [UUID], profiles: [UsageProfile]) -> [UUID] {
+        let codexIDs = profiles.map(\.id)
+        let validIDs = Set(codexIDs + [antigravityProfileID])
+        var seen = Set<UUID>()
+        var order = preferred.filter { validIDs.contains($0) && seen.insert($0).inserted }
+        let missingCodexIDs = codexIDs.filter { seen.insert($0).inserted }
+
+        if let antigravityIndex = order.firstIndex(of: antigravityProfileID) {
+            order.insert(contentsOf: missingCodexIDs, at: antigravityIndex)
+        } else {
+            order.append(contentsOf: missingCodexIDs)
+            order.append(antigravityProfileID)
+        }
+        return order
     }
 
     private func postPreferencesChanged() {
