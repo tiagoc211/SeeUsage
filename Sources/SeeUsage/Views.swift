@@ -310,6 +310,7 @@ private struct ActivityHeatmap: View {
     let dailyConsumption: [DailyConsumption]
     let accent: Color
     @State private var hoveredDate: Date?
+    @State private var selectedDate: Date?
 
     var body: some View {
         let calendar = Calendar.current
@@ -322,6 +323,11 @@ private struct ActivityHeatmap: View {
             entries.reduce(0) { $0 + $1.consumptionPercent }
         }
         let peakUsage = usageByDay.values.max() ?? 0
+        let selectedProfileUsage = selectedDate.map { selectedDate in
+            dailyConsumption
+                .filter { calendar.isDate($0.date, inSameDayAs: selectedDate) }
+                .sorted { $0.consumptionPercent > $1.consumptionPercent }
+        } ?? []
         let hoverSummary = hoveredDate.map { date in
             activitySummary(for: date, usage: usageByDay[calendar.startOfDay(for: date)] ?? 0)
         } ?? "Last 12 weeks"
@@ -345,19 +351,71 @@ private struct ActivityHeatmap: View {
                             let usage = usageByDay[date] ?? 0
                             let intensity = activityIntensity(for: usage, peak: peakUsage)
 
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(activityColor(for: intensity))
-                                .frame(width: 12, height: 12)
-                                .contentShape(Rectangle())
-                                .onHover { isHovering in
-                                    if isHovering { hoveredDate = date }
-                                }
-                                .accessibilityLabel(activityDescription(for: date, usage: usage))
+                            Button {
+                                selectedDate = selectedDate == date ? nil : date
+                            } label: {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(activityColor(for: intensity))
+                                    .overlay {
+                                        if selectedDate == date {
+                                            RoundedRectangle(cornerRadius: 2)
+                                                .strokeBorder(Color.primary.opacity(0.8), lineWidth: 1)
+                                        }
+                                    }
+                                    .frame(width: 12, height: 12)
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+                            .onHover { isHovering in
+                                if isHovering { hoveredDate = date }
+                            }
+                            .accessibilityLabel(activityDescription(for: date, usage: usage))
+                            .accessibilityHint("Show usage by profile")
                         }
                     }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)
+
+            if let selectedDate {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text(selectedDate.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption.weight(.medium))
+                        Spacer()
+                        Button {
+                            self.selectedDate = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Close activity details")
+                    }
+
+                    if selectedProfileUsage.isEmpty {
+                        Text("No recorded usage")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(selectedProfileUsage) { entry in
+                            HStack {
+                                Text(entry.profileName)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text("\(entry.consumptionPercent.formatted(.number.precision(.fractionLength(0...1)))) quota pts")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
+                .padding(.top, 1)
+            }
         }
         .padding(.vertical, 2)
     }
