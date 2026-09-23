@@ -26,6 +26,7 @@ public final class UsageStore {
 
     private var timerTask: Task<Void, Never>?
     private var activeRefreshTask: Task<Void, Never>?
+    private var refreshRequestedAfterCurrent = false
     private static let cacheKey = "app.seeusage.snapshots.cache"
 
     public static var sharedCacheURL: URL {
@@ -192,22 +193,25 @@ public final class UsageStore {
 
     public func refresh(forceAfterCurrent: Bool = false) async {
         if let activeRefreshTask {
-            await activeRefreshTask.value
             if forceAfterCurrent {
-                await refresh()
+                refreshRequestedAfterCurrent = true
             }
+            await activeRefreshTask.value
             return
         }
 
+        isRefreshing = true
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performRefresh()
+            repeat {
+                self.refreshRequestedAfterCurrent = false
+                await self.performRefresh()
+            } while self.refreshRequestedAfterCurrent
+            self.activeRefreshTask = nil
+            self.isRefreshing = false
         }
         activeRefreshTask = task
-        isRefreshing = true
         await task.value
-        activeRefreshTask = nil
-        isRefreshing = false
     }
 
     public func pruneInactiveSnapshots() {

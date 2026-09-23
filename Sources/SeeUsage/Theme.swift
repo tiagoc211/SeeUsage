@@ -346,6 +346,10 @@ public enum ThemeRegistry {
     ]
 
     public static func theme(for id: String) -> AppTheme {
+        themeIfKnown(for: id) ?? t3Default
+    }
+
+    public static func themeIfKnown(for id: String) -> AppTheme? {
         let clean = id.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         switch clean {
         case "emerald", "default", "t3-default":
@@ -369,7 +373,7 @@ public enum ThemeRegistry {
         case "solar", "solarized":
             return solarized
         default:
-            return allThemes.first { $0.id == clean } ?? t3Default
+            return allThemes.first { $0.id == clean }
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 public struct ProcessResult: Sendable {
     public let standardOutput: Data
@@ -185,9 +186,13 @@ public enum ProcessRunner {
             semaphore.signal()
         }
 
+        let deadline = DispatchTime.now() + timeout
         do {
             try process.run()
         } catch {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            try? stdinPipe.fileHandleForWriting.close()
             throw ProcessRunnerError.launchFailed(executable)
         }
 
@@ -200,14 +205,25 @@ public enum ProcessRunner {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
-        let waitResult = semaphore.wait(timeout: .now() + timeout)
+        let waitResult = semaphore.wait(timeout: deadline)
 
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
 
         if waitResult == .timedOut {
-            process.terminate()
-            throw ProcessRunnerError.timedOut(executable)
+            let receivedExpectedResponse = completionResponseID.map { _ in stdoutData.hasFoundJSONRPCResponse } ?? false
+            if process.isRunning {
+                process.terminate()
+            }
+            if semaphore.wait(timeout: .now() + .milliseconds(300)) == .timedOut {
+                if process.isRunning {
+                    _ = kill(process.processIdentifier, SIGKILL)
+                }
+                semaphore.wait()
+            }
+            guard receivedExpectedResponse else {
+                throw ProcessRunnerError.timedOut(executable)
+            }
         }
 
         let remainingStdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
@@ -227,6 +243,7 @@ public enum ProcessRunner {
 private final class ThreadSafeData: @unchecked Sendable {
     private var data = Data()
     private var lineBuffer = Data()
+    private var foundJSONRPCResponse = false
     private let lock = NSLock()
 
     func append(_ newChunk: Data) {
@@ -249,9 +266,16 @@ private final class ThreadSafeData: @unchecked Sendable {
                   let id = object["id"] as? NSNumber,
                   id.intValue == expectedID
             else { continue }
+            foundJSONRPCResponse = true
             return true
         }
         return false
+    }
+
+    var hasFoundJSONRPCResponse: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return foundJSONRPCResponse
     }
 
     func get() -> Data {

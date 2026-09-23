@@ -278,11 +278,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func handleOpenSettingsNotification(_ notification: Notification) {
-        if let tabStr = notification.object as? String, let tab = SettingsTab(rawValue: tabStr) {
-            SettingsWindowManager.shared.show(tab: tab)
-        } else {
-            SettingsWindowManager.shared.show()
+        if let tabStr = notification.object as? String,
+           SettingsTab(rawValue: tabStr) == .profiles {
+            SettingsWindowManager.shared.show(tab: .profiles)
+            return
         }
+        SettingsWindowManager.shared.show()
     }
 }
 

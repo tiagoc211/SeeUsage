@@ -16,8 +16,9 @@ SeeUsage monitors your remaining AI coding allowances across local CLI accounts 
 - **Antigravity quota monitoring**: Reads active `agy` rate limits across model families routed via Antigravity (Gemini, Claude & GPT models included in your Antigravity plan, distinct from direct Anthropic/Claude provider accounts).
 - **Customizable menu bar**: Choose between Lowest Quota (`⚡ 47%`), Dual Quotas (`cx: 92% · ag: 81%`), Mini Gauge, or Icon Only, with color-coded quota health.
 - **Interactive watch dashboard (`seeusage watch`)**: Real-time terminal TUI with second-by-second countdowns to quota resets and theme switching.
-- **Floating Mini-HUD (Desktop Widget)**: A draggable, semi-translucent floating widget with compact pill or detailed card layouts, pin always-on-top, opacity slider, and live reset countdowns.
-- **Quota Analytics & Usage History**: Lightweight recording in `~/.config/seeusage/history.json` and native SwiftUI `Charts` in Settings showing peak burn hours of the day (00:00–23:00), profile comparisons (Personal vs Work vs Antigravity), and 7-day consumption trends.
+- **Floating Mini-HUD (Desktop Widget)**: A draggable, semi-translucent floating widget with compact pill or detailed card layouts, pin always-on-top, CLI-adjustable opacity, and live reset countdowns.
+- **Banked Codex resets**: See available reset credits in the popover and confirm before activating one; the CLI can also list and consume credits.
+- **Quota Analytics & Usage History**: Lightweight local history in `~/.config/seeusage/history.json`, with terminal summaries and CSV/JSON export for consumption and reset records.
 - **Native system notifications**: Custom alerts when any quota drops below a configurable threshold and when limits reset back to 100%.
 - **Fast shell prompt integration**: Instant cached one-liner (`seeusage --mini --cached`) for Starship, Zsh, and tmux prompts, plus JSON output (`--json`).
 - **Local and private**: Runs entirely on your machine. Never stores, reads, or transmits tokens or authentication secrets.

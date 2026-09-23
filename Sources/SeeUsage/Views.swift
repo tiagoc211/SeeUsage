@@ -10,7 +10,7 @@ public final class SettingsWindowManager: NSObject, NSWindowDelegate {
         super.init()
     }
 
-    public func show(tab: SettingsTab = .menubar) {
+    public func show(tab: SettingsTab = .general) {
         if let window {
             NotificationCenter.default.post(
                 name: NSNotification.Name("app.seeusage.selectSettingsTab"),
@@ -43,9 +43,8 @@ public final class SettingsWindowManager: NSObject, NSWindowDelegate {
     }
 }
 
-public enum SettingsTab: String, CaseIterable, Identifiable, Sendable {
-    case menubar, hud, resets, analytics, appearance, notifications, profiles, executables, sync, about
-    public var id: String { rawValue }
+public enum SettingsTab: String, Sendable {
+    case general, profiles
 }
 
 private struct PendingReset: Identifiable {
@@ -298,7 +297,7 @@ public struct SettingsView: View {
     @Bindable private var settings = SettingsStore.shared
     @State private var selectedTab: PreferenceTab
 
-    public init(initialTab: SettingsTab = .menubar) {
+    public init(initialTab: SettingsTab = .general) {
         _selectedTab = State(initialValue: initialTab == .profiles ? .profiles : .general)
     }
 
@@ -338,7 +337,7 @@ public struct SettingsView: View {
 
             Section("Appearance") {
                 Picker("Accent color", selection: $settings.selectedThemeID) {
-                    ForEach(ThemeRegistry.appearanceThemes) { theme in
+                    ForEach(appearancePickerThemes) { theme in
                         HStack(spacing: 8) {
                             Circle()
                                 .fill(theme.accent)
@@ -384,6 +383,12 @@ public struct SettingsView: View {
         }
         .formStyle(.grouped)
         .tabItem { Label("General", systemImage: "gearshape") }
+    }
+
+    private var appearancePickerThemes: [AppTheme] {
+        let themes = ThemeRegistry.appearanceThemes
+        guard !themes.contains(where: { $0.id == settings.selectedThemeID }) else { return themes }
+        return [settings.currentTheme] + themes
     }
 
     private var profilePreferences: some View {
