@@ -153,6 +153,7 @@ public struct UsagePopoverView: View {
                             historySnapshots: analytics.snapshots.filter {
                                 $0.timestamp >= Date().addingTimeInterval(-85 * 86_400)
                             },
+                            codexProfiles: settings.codexProfiles,
                             accent: settings.currentTheme.accent
                         )
                     }
@@ -333,7 +334,7 @@ public struct UsagePopoverView: View {
 }
 
 private struct ActivityProfileUsage: Identifiable {
-    let id: UUID
+    let id: String
     let profileName: String
     let consumptionPercent: Double
 }
@@ -341,6 +342,7 @@ private struct ActivityProfileUsage: Identifiable {
 private struct ActivityHeatmap: View {
     let dailyConsumption: [DailyConsumption]
     let historySnapshots: [QuotaHistorySnapshot]
+    let codexProfiles: [UsageProfile]
     let accent: Color
     @State private var hoveredDate: Date?
     @State private var selectedDate: Date?
@@ -371,14 +373,49 @@ private struct ActivityHeatmap: View {
                 uniquingKeysWith: { first, _ in first }
             )
 
-            return sampledProfiles.map { profileID, profile in
-                ActivityProfileUsage(
-                    id: profileID,
-                    profileName: profile.service == "Antigravity" ? "agy" : profile.name,
-                    consumptionPercent: usageByProfile[profileID] ?? 0
-                )
+            let currentProfileNames = Dictionary(
+                codexProfiles.map { ($0.id, $0.name) },
+                uniquingKeysWith: { _, newest in newest }
+            )
+            var profileUsage: [ActivityProfileUsage] = []
+            var otherCodexUsage = 0.0
+            var hasOtherCodexSamples = false
+
+            for (profileID, profile) in sampledProfiles {
+                let usage = usageByProfile[profileID] ?? 0
+                if profileID == SettingsStore.antigravityProfileID {
+                    profileUsage.append(ActivityProfileUsage(
+                        id: profileID.uuidString,
+                        profileName: "agy",
+                        consumptionPercent: usage
+                    ))
+                } else if let currentName = currentProfileNames[profileID] {
+                    profileUsage.append(ActivityProfileUsage(
+                        id: profileID.uuidString,
+                        profileName: currentName,
+                        consumptionPercent: usage
+                    ))
+                } else if profile.service == "Codex" {
+                    otherCodexUsage += usage
+                    hasOtherCodexSamples = true
+                } else {
+                    profileUsage.append(ActivityProfileUsage(
+                        id: profileID.uuidString,
+                        profileName: profile.name,
+                        consumptionPercent: usage
+                    ))
+                }
             }
-            .sorted { $0.consumptionPercent > $1.consumptionPercent }
+
+            if hasOtherCodexSamples {
+                profileUsage.append(ActivityProfileUsage(
+                    id: "other-codex",
+                    profileName: "Other Codex",
+                    consumptionPercent: otherCodexUsage
+                ))
+            }
+
+            return profileUsage.sorted { $0.consumptionPercent > $1.consumptionPercent }
         } ?? []
         let hoverSummary = hoveredDate.map { date in
             activitySummary(for: date, usage: usageByDay[calendar.startOfDay(for: date)] ?? 0)
