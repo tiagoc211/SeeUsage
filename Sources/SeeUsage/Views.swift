@@ -542,9 +542,44 @@ private enum PreferenceTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+private enum ClaudeProviderStatus {
+    case checking
+    case notInstalled
+    case signedIn
+    case signedOut
+    case unavailable
+
+    var title: String {
+        switch self {
+        case .checking: return "Checking…"
+        case .notInstalled: return "Not installed"
+        case .signedIn: return "Signed in"
+        case .signedOut: return "Not signed in"
+        case .unavailable: return "Status unavailable"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .checking: return "circle.dotted"
+        case .notInstalled, .signedOut: return "xmark.circle"
+        case .signedIn: return "checkmark.circle.fill"
+        case .unavailable: return "questionmark.circle"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .signedIn: return .green
+        case .checking, .notInstalled, .signedOut, .unavailable: return .secondary
+        }
+    }
+}
+
 public struct SettingsView: View {
     @Bindable private var settings = SettingsStore.shared
     @State private var selectedTab: PreferenceTab
+    @State private var claudeProviderStatus: ClaudeProviderStatus = .checking
 
     public init(initialTab: SettingsTab = .general) {
         _selectedTab = State(initialValue: initialTab == .profiles ? .providers : .general)
@@ -568,6 +603,10 @@ public struct SettingsView: View {
             } else {
                 selectedTab = .general
             }
+        }
+        .task(id: selectedTab) {
+            guard selectedTab == .providers else { return }
+            await refreshClaudeProviderStatus()
         }
     }
 
@@ -702,6 +741,10 @@ public struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            Section("Claude Code") {
+                claudeProviderStatusRow
+            }
         }
         .formStyle(.grouped)
     }
@@ -712,6 +755,60 @@ public struct SettingsView: View {
 
     private var antigravityExecutablePath: String? {
         ProcessRunner.resolveExecutable(named: "agy", overridePath: settings.antigravityExecutableOverride)
+    }
+
+    private var claudeExecutablePath: String? {
+        ProcessRunner.resolveExecutable(named: "claude")
+    }
+
+    private var claudeProviderStatusRow: some View {
+        HStack(spacing: 8) {
+            Label(claudeProviderStatus.title, systemImage: claudeProviderStatus.symbol)
+                .font(.caption)
+                .foregroundStyle(claudeProviderStatus.color)
+            Spacer(minLength: 8)
+            Text(claudeExecutablePath ?? "CLI not found")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.vertical, 2)
+    }
+
+    @MainActor
+    private func refreshClaudeProviderStatus() async {
+        guard let executablePath = claudeExecutablePath else {
+            claudeProviderStatus = .notInstalled
+            return
+        }
+
+        claudeProviderStatus = .checking
+        do {
+            let result = try await ProcessRunner.run(
+                executable: executablePath,
+                arguments: ["auth", "status"],
+                timeout: 5
+            )
+
+            guard (try? JSONSerialization.jsonObject(with: result.standardOutput, options: [.fragmentsAllowed])) != nil else {
+                claudeProviderStatus = .unavailable
+                return
+            }
+
+            if result.terminationStatus == 0 {
+                claudeProviderStatus = .signedIn
+            } else if result.terminationStatus == 1 {
+                let output = (result.outputString + "\n" + result.errorString).lowercased()
+                let commandUnavailable = ["unknown command", "unrecognized command", "unknown subcommand", "invalid command"]
+                    .contains(where: output.contains)
+                claudeProviderStatus = commandUnavailable ? .unavailable : .signedOut
+            } else {
+                claudeProviderStatus = .unavailable
+            }
+        } catch {
+            claudeProviderStatus = .unavailable
+        }
     }
 
     private func providerStatusRow(executablePath: String?) -> some View {
