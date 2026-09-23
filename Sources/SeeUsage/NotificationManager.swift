@@ -7,10 +7,12 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     public static let shared = NotificationManager(stateDefaults: SettingsStore.defaults)
 
     private var alertedLowWindows: Set<String> = []
+    private var alertedBankedCreditExpirations: Set<String> = []
     private var lastKnownPercentages: [String: Double] = [:]
     private let stateDefaults: UserDefaults
 
     private static let alertedKey = "app.seeusage.alertedLowWindows"
+    private static let alertedBankedCreditsKey = "app.seeusage.alertedBankedCreditExpirations"
     private static let lastPercentsKey = "app.seeusage.lastKnownPercentages"
 
     init(stateDefaults: UserDefaults = SettingsStore.defaults) {
@@ -51,6 +53,9 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         if let list = stateDefaults.stringArray(forKey: Self.alertedKey) {
             alertedLowWindows = Set(list)
         }
+        if let list = stateDefaults.stringArray(forKey: Self.alertedBankedCreditsKey) {
+            alertedBankedCreditExpirations = Set(list)
+        }
         if let dict = stateDefaults.dictionary(forKey: Self.lastPercentsKey) as? [String: Double] {
             lastKnownPercentages = dict
         }
@@ -58,6 +63,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
 
     private func saveState() {
         stateDefaults.set(Array(alertedLowWindows), forKey: Self.alertedKey)
+        stateDefaults.set(Array(alertedBankedCreditExpirations), forKey: Self.alertedBankedCreditsKey)
         stateDefaults.set(lastKnownPercentages, forKey: Self.lastPercentsKey)
     }
 
@@ -68,6 +74,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
             return profileIDs.contains(profileID)
         }
         alertedLowWindows = Set(alertedLowWindows.filter(isActive))
+        alertedBankedCreditExpirations = Set(alertedBankedCreditExpirations.filter(isActive))
         lastKnownPercentages = lastKnownPercentages.filter { isActive($0.key) }
         saveState()
     }
@@ -96,6 +103,27 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
             } else {
                 serviceName = "Codex"
                 profileName = "Profile"
+            }
+
+            if settings.notifyOnBankedResetExpiring {
+                let now = Date()
+                for credit in newSnapshot.bankedCredits where credit.status.lowercased() == "available" {
+                    guard let expiration = credit.expiresAt else { continue }
+                    let secondsRemaining = expiration.timeIntervalSince(now)
+                    guard secondsRemaining > 0, secondsRemaining <= 24 * 60 * 60 else { continue }
+
+                    let creditKey = "\(profileID.uuidString):\(credit.id)"
+                    guard !alertedBankedCreditExpirations.contains(creditKey) else { continue }
+
+                    alertedBankedCreditExpirations.insert(creditKey)
+                    let creditTitle = credit.title ?? "Banked reset"
+                    postNotification(
+                        title: "⚠️ Banked Reset Expiring",
+                        subtitle: profileName,
+                        body: "\(creditTitle) expires on \(Formatters.dayMonthTime(expiration)). Use it before it expires.",
+                        identifier: "banked-expiry-\(UUIDHelper.deterministic(for: creditKey).uuidString)"
+                    )
+                }
             }
 
             for window in newSnapshot.windows {

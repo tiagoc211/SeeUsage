@@ -85,6 +85,14 @@ public final class SettingsStore {
         }
     }
 
+    public var notifyOnBankedResetExpiring: Bool {
+        didSet {
+            Self.defaults.set(notifyOnBankedResetExpiring, forKey: "notifyOnBankedResetExpiring")
+            UserDefaults.standard.set(notifyOnBankedResetExpiring, forKey: "notifyOnBankedResetExpiring")
+            postPreferencesChanged()
+        }
+    }
+
     public var notificationSoundEnabled: Bool {
         didSet {
             Self.defaults.set(notificationSoundEnabled, forKey: "notificationSoundEnabled")
@@ -194,6 +202,10 @@ public final class SettingsStore {
 
         self.notifyOnReset = prefs.object(forKey: "notifyOnReset") as? Bool
             ?? fallback.object(forKey: "notifyOnReset") as? Bool
+            ?? true
+
+        self.notifyOnBankedResetExpiring = prefs.object(forKey: "notifyOnBankedResetExpiring") as? Bool
+            ?? fallback.object(forKey: "notifyOnBankedResetExpiring") as? Bool
             ?? true
 
         self.notificationSoundEnabled = prefs.object(forKey: "notificationSoundEnabled") as? Bool
@@ -318,6 +330,8 @@ public final class SettingsStore {
             if threshold > 0, threshold != self.criticalThresholdPercent { self.criticalThresholdPercent = threshold }
             if let value = prefs.object(forKey: "notifyOnReset") as? Bool,
                value != self.notifyOnReset { self.notifyOnReset = value }
+            if let value = prefs.object(forKey: "notifyOnBankedResetExpiring") as? Bool,
+               value != self.notifyOnBankedResetExpiring { self.notifyOnBankedResetExpiring = value }
             if let value = prefs.object(forKey: "notificationSoundEnabled") as? Bool,
                value != self.notificationSoundEnabled { self.notificationSoundEnabled = value }
             let interval = prefs.integer(forKey: "refreshIntervalMinutes")

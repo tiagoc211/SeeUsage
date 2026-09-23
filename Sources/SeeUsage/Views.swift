@@ -621,6 +621,8 @@ public struct SettingsView: View {
                 .disabled(!settings.notificationsEnabled || !settings.notifyOnCritical)
                 Toggle("Notify when quotas reset", isOn: $settings.notifyOnReset)
                     .disabled(!settings.notificationsEnabled)
+                Toggle("Alert before banked reset expires", isOn: $settings.notifyOnBankedResetExpiring)
+                    .disabled(!settings.notificationsEnabled)
                 Toggle("Play notification sounds", isOn: $settings.notificationSoundEnabled)
                     .disabled(!settings.notificationsEnabled)
             }
