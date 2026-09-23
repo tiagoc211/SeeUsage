@@ -681,11 +681,16 @@ public struct SettingsView: View {
             Section("Codex") {
                 providerStatusRow(executablePath: codexExecutablePath)
                 DisclosureGroup("CLI path") {
-                    TextField("Executable path", text: $settings.codexExecutableOverride)
-                        .font(.system(.body, design: .monospaced))
+                    LabeledContent {
+                        TextField("Auto-detect", text: $settings.codexExecutableOverride)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12, design: .monospaced))
+                    } label: {
+                        Text("Path").font(.caption)
+                    }
                     Text("Leave empty to search common locations.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
 
@@ -734,11 +739,16 @@ public struct SettingsView: View {
             Section("Antigravity") {
                 providerStatusRow(executablePath: antigravityExecutablePath)
                 DisclosureGroup("CLI path") {
-                    TextField("Executable path", text: $settings.antigravityExecutableOverride)
-                        .font(.system(.body, design: .monospaced))
+                    LabeledContent {
+                        TextField("Auto-detect", text: $settings.antigravityExecutableOverride)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12, design: .monospaced))
+                    } label: {
+                        Text("Path").font(.caption)
+                    }
                     Text("Leave empty to search common locations.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
 
