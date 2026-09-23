@@ -1,6 +1,6 @@
 # SeeUsage
 
-A lightweight macOS menu bar app and CLI for tracking AI coding quotas across Codex profiles and Antigravity.
+A lightweight macOS menu bar app and CLI for tracking AI coding quotas across Codex profiles, Antigravity, and Claude Code.
 
 <p align="center">
   <img src="./assets/seeusage-demo.gif" alt="SeeUsage demo" width="850">
@@ -8,12 +8,13 @@ A lightweight macOS menu bar app and CLI for tracking AI coding quotas across Co
 
 ## What is SeeUsage?
 
-SeeUsage monitors your remaining AI coding allowances across local CLI accounts in a single, glanceable interface. It tracks 5-hour session limits and 7-day weekly quotas for both Codex (including multiple isolated profiles) and Antigravity. Live countdowns display exactly when limits reset, helping you balance work across accounts without hitting unexpected rate limits mid-task.
+SeeUsage monitors your remaining AI coding allowances across local CLI accounts in a single, glanceable interface. It tracks 5-hour session limits and 7-day weekly quotas for Codex (including multiple isolated profiles) and Antigravity, with optional Claude Code usage sync.
 
 ## Features
 
 - **Codex multi-profile tracking**: Simultaneously queries quotas across `~/.codex` and `~/.codex-profiles/*` without switching active accounts or reading credentials.
 - **Antigravity quota monitoring**: Reads active `agy` rate limits across model families routed via Antigravity (Gemini, Claude & GPT models included in your Antigravity plan, distinct from direct Anthropic/Claude provider accounts).
+- **Claude Code usage (optional)**: Enable usage sync in Settings → Providers to show Claude Code's 5-hour and weekly subscription quotas. SeeUsage reads Claude Code's local status-line data and preserves an existing custom status line.
 - **Customizable menu bar**: Choose between Lowest Quota (`⚡ 47%`), Dual Quotas (`cx: 92% · ag: 81%`), Mini Gauge, or Icon Only, with color-coded quota health.
 - **Interactive watch dashboard (`seeusage watch`)**: Real-time terminal TUI with second-by-second countdowns to quota resets and theme switching.
 - **Floating Mini-HUD (Desktop Widget)**: A draggable, semi-translucent floating widget with compact pill or detailed card layouts, pin always-on-top, CLI-adjustable opacity, and live reset countdowns.

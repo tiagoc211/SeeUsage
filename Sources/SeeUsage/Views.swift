@@ -116,11 +116,12 @@ public struct UsagePopoverView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if settings.codexProfiles.isEmpty,
-                       store.snapshots[SettingsStore.antigravityProfileID] == nil {
+                       store.snapshots[SettingsStore.antigravityProfileID] == nil,
+                       store.claudeUsageSnapshot == nil {
                         ContentUnavailableView {
-                            Label("No Codex profiles", systemImage: "person.crop.circle.badge.questionmark")
+                            Label("No usage data", systemImage: "person.crop.circle.badge.questionmark")
                         } description: {
-                            Text("Add a Codex profile in Settings to see its usage.")
+                            Text("Add a Codex profile or enable Claude Code usage in Settings.")
                         } actions: {
                             Button("Open Settings") { SettingsWindowManager.shared.show(tab: .profiles) }
                                 .buttonStyle(.bordered)
@@ -136,9 +137,15 @@ public struct UsagePopoverView: View {
                                 Divider()
                             }
                         }
+                        if let claudeUsage = store.claudeUsageSnapshot {
+                            if !settings.codexProfiles.isEmpty || store.snapshots[SettingsStore.antigravityProfileID] != nil {
+                                Divider()
+                            }
+                            claudeUsageSection(claudeUsage)
+                        }
                     }
 
-                    if store.snapshots.isEmpty && !store.isRefreshing {
+                    if store.snapshots.isEmpty && store.claudeUsageSnapshot == nil && !store.isRefreshing {
                         Text("Usage will appear here after the first refresh.")
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -269,6 +276,23 @@ public struct UsagePopoverView: View {
                 ProgressView("Loading usage…").controlSize(.small)
             } else {
                 Text("No usage data yet.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+    }
+
+    private func claudeUsageSection(_ snapshot: ClaudeUsageSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Claude Code").font(.headline)
+                Spacer()
+                Text("Updated \(snapshot.updatedAt.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            ForEach(snapshot.windows) { window in
+                quotaRow(window, provider: "Claude Code")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -580,6 +604,8 @@ public struct SettingsView: View {
     @Bindable private var settings = SettingsStore.shared
     @State private var selectedTab: PreferenceTab
     @State private var claudeProviderStatus: ClaudeProviderStatus = .checking
+    @State private var claudeUsageSyncEnabled = false
+    @State private var claudeUsageSyncError: String?
 
     public init(initialTab: SettingsTab = .general) {
         _selectedTab = State(initialValue: initialTab == .profiles ? .providers : .general)
@@ -606,6 +632,7 @@ public struct SettingsView: View {
         }
         .task(id: selectedTab) {
             guard selectedTab == .providers else { return }
+            claudeUsageSyncEnabled = ClaudeStatusLineIntegration.isEnabled()
             await refreshClaudeProviderStatus()
         }
     }
@@ -754,6 +781,28 @@ public struct SettingsView: View {
 
             Section("Claude Code") {
                 claudeProviderStatusRow
+                if claudeExecutablePath != nil {
+                    HStack {
+                        Text("Usage sync")
+                            .font(.caption)
+                        Spacer()
+                        Button(claudeUsageSyncEnabled ? "Turn Off" : "Enable") {
+                            setClaudeUsageSync(!claudeUsageSyncEnabled)
+                        }
+                        .controlSize(.small)
+                    }
+                    Text(claudeUsageSyncEnabled
+                         ? "Usage updates as you use Claude Code."
+                         : "Show Claude Code usage in SeeUsage.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    if let claudeUsageSyncError {
+                        Text(claudeUsageSyncError)
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
         .formStyle(.grouped)
@@ -818,6 +867,21 @@ public struct SettingsView: View {
             }
         } catch {
             claudeProviderStatus = .unavailable
+        }
+    }
+
+    private func setClaudeUsageSync(_ enabled: Bool) {
+        do {
+            if enabled {
+                try ClaudeStatusLineIntegration.enable()
+            } else {
+                try ClaudeStatusLineIntegration.disable()
+            }
+            claudeUsageSyncEnabled = ClaudeStatusLineIntegration.isEnabled()
+            claudeUsageSyncError = nil
+        } catch {
+            claudeUsageSyncEnabled = ClaudeStatusLineIntegration.isEnabled()
+            claudeUsageSyncError = error.localizedDescription
         }
     }
 

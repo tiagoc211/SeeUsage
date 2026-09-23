@@ -33,7 +33,7 @@ public enum ProcessRunnerError: LocalizedError, Sendable {
 }
 
 public enum ProcessRunner {
-    public static func defaultEnvironment() -> [String: String] {
+    public static func defaultEnvironment(suppressColor: Bool = true) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let standardPaths = [
@@ -63,7 +63,7 @@ public enum ProcessRunner {
 
         env["PATH"] = currentPaths.joined(separator: ":")
         env["HOME"] = home
-        env["NO_COLOR"] = "1"
+        if suppressColor { env["NO_COLOR"] = "1" }
         return env
     }
 
@@ -125,7 +125,8 @@ public enum ProcessRunner {
         environment: [String: String] = [:],
         input: Data? = nil,
         timeout: TimeInterval = 15,
-        completionResponseID: Int? = nil
+        completionResponseID: Int? = nil,
+        suppressColor: Bool = true
     ) async throws -> ProcessResult {
         try await Task.detached(priority: .userInitiated) {
             try runSynchronous(
@@ -134,7 +135,8 @@ public enum ProcessRunner {
                 environment: environment,
                 input: input,
                 timeout: timeout,
-                completionResponseID: completionResponseID
+                completionResponseID: completionResponseID,
+                suppressColor: suppressColor
             )
         }.value
     }
@@ -145,7 +147,8 @@ public enum ProcessRunner {
         environment: [String: String],
         input: Data?,
         timeout: TimeInterval,
-        completionResponseID: Int?
+        completionResponseID: Int?,
+        suppressColor: Bool
     ) throws -> ProcessResult {
         let process = Process()
         let stdoutPipe = Pipe()
@@ -159,7 +162,7 @@ public enum ProcessRunner {
         process.standardError = stderrPipe
         process.standardInput = stdinPipe
 
-        var env = defaultEnvironment()
+        var env = defaultEnvironment(suppressColor: suppressColor)
         environment.forEach { env[$0.key] = $0.value }
         process.environment = env
 

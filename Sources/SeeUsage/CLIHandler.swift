@@ -37,6 +37,11 @@ public enum CLIHandler {
             args.removeAll { $0 == "--no-color" }
         }
 
+        if args.first == "claude-statusline" {
+            await ClaudeStatusLineIntegration.capture(FileHandle.standardInput.readDataToEndOfFile())
+            return true
+        }
+
         // Help
         if args.contains("-h") || args.contains("--help") {
             printHelp()

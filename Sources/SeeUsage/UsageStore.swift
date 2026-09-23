@@ -21,6 +21,7 @@ public final class UsageStore {
     public static let shared = UsageStore()
 
     public private(set) var snapshots: [UUID: UsageSnapshot] = [:]
+    public private(set) var claudeUsageSnapshot: ClaudeUsageSnapshot?
     public private(set) var isRefreshing: Bool = false
     public private(set) var lastUpdated: Date? = nil
 
@@ -79,6 +80,7 @@ public final class UsageStore {
 
     public init() {
         loadCache()
+        loadClaudeUsageCache()
         observeSharedCacheUpdates()
         startTimer()
     }
@@ -90,6 +92,13 @@ public final class UsageStore {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.loadCache() }
+        }
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("app.seeusage.claudeUsageChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.loadClaudeUsageCache() }
         }
     }
 
@@ -116,6 +125,13 @@ public final class UsageStore {
             self.lastUpdated = decoded.values.map(\.fetchedAt).max()
             NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
         }
+    }
+
+    public func loadClaudeUsageCache() {
+        let latest = ClaudeStatusLineIntegration.loadCachedUsage()
+        guard latest != claudeUsageSnapshot else { return }
+        claudeUsageSnapshot = latest
+        NotificationCenter.default.post(name: .usageStoreDidUpdate, object: nil)
     }
 
     private func saveCache() {
@@ -169,6 +185,8 @@ public final class UsageStore {
                 let interval = SettingsStore.shared.refreshIntervalMinutes * 60
                 let now = Date()
                 let intervalElapsed = self.lastUpdated.map { now.timeIntervalSince($0) >= Double(interval) } ?? true
+
+                self.loadClaudeUsageCache()
 
                 // Check if any window reset time just elapsed
                 var resetTriggered = false
