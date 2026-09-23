@@ -175,9 +175,7 @@ extension CLIHandler {
         print("  Profile: " + bold(prof.name))
         print("  Credit:  " + bold(title))
         if let exp = credit.expiresAt {
-            let df = DateFormatter()
-            df.dateFormat = "MMM d, HH:mm"
-            print("  Expires: " + dim(df.string(from: exp)) + " " + dim("(\(Formatters.resetDescription(for: exp).lowercased()))"))
+            print("  Expires: " + dim(Formatters.dayMonthTime(exp)) + " " + dim("(\(Formatters.resetDescription(for: exp).lowercased()))"))
         }
         print("\n" + bold("This will immediately use one credit to reset eligible Codex quota windows."))
 
@@ -224,10 +222,7 @@ extension CLIHandler {
 
                 let expStr: String
                 if let exp = b.credit.expiresAt {
-                    let df = DateFormatter()
-                    df.locale = Locale(identifier: "en_US_POSIX")
-                    df.dateFormat = "M/d"
-                    expStr = "expires on \(df.string(from: exp))"
+                    expStr = "expires on \(Formatters.dayMonth(exp))"
                 } else {
                     expStr = "no expiration"
                 }
@@ -275,9 +270,7 @@ extension CLIHandler {
                 let colorFn = quotaColor(for: u.currentRemainingPercent)
                 let qCol = bold(colorFn(paddedPct))
 
-                let dateFmt = DateFormatter()
-                dateFmt.dateFormat = "MMM d, HH:mm"
-                let dateStr = dateFmt.string(from: u.resetsAt).padding(toLength: 16, withPad: " ", startingAt: 0)
+                let dateStr = Formatters.dayMonthTime(u.resetsAt).padding(toLength: 16, withPad: " ", startingAt: 0)
 
                 let countdown = bold(cyan(WatchDashboard.countdownString(until: u.resetsAt)))
 
@@ -302,11 +295,8 @@ extension CLIHandler {
             print("  " + bold(dim("\(hDate) \(hProf) \(hWin) \(hJump) \(hStatus)")))
             print("  " + dim(String(repeating: "─", count: 74)))
 
-            let df = DateFormatter()
-            df.dateFormat = "MMM d, HH:mm"
-
             for h in history {
-                let timeStr = df.string(from: h.timestamp).padding(toLength: 17, withPad: " ", startingAt: 0)
+                let timeStr = Formatters.dayMonthTime(h.timestamp).padding(toLength: 17, withPad: " ", startingAt: 0)
                 let tagStr = h.service == "Antigravity" ? "[agy]" : "[cx]"
                 let rawProf = "\(tagStr) \(h.profileName)".padding(toLength: 16, withPad: " ", startingAt: 0)
                 let profStr = h.service == "Antigravity"

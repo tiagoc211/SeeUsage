@@ -73,9 +73,7 @@ public struct DailyConsumption: Identifiable, Sendable {
     }
 
     public var shortDateLabel: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: date)
+        Formatters.dayMonthName(date)
     }
 }
 

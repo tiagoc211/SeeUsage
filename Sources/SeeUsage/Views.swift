@@ -54,6 +54,26 @@ private struct PendingReset: Identifiable {
 }
 
 public enum Formatters {
+    public static func dayMonth(_ date: Date) -> String {
+        dateString(date, format: "d/M")
+    }
+
+    public static func dayMonthName(_ date: Date) -> String {
+        dateString(date, format: "d MMM")
+    }
+
+    public static func dayMonthYear(_ date: Date) -> String {
+        dateString(date, format: "d MMM yyyy")
+    }
+
+    public static func longDayMonthYear(_ date: Date) -> String {
+        dateString(date, format: "d MMMM yyyy")
+    }
+
+    public static func dayMonthTime(_ date: Date) -> String {
+        dateString(date, format: "d MMM, HH:mm")
+    }
+
     public static func resetDescription(for date: Date) -> String {
         let seconds = max(0, Int(date.timeIntervalSinceNow))
         if seconds == 0 { return "now" }
@@ -65,14 +85,17 @@ public enum Formatters {
         return "in \(max(1, minutes))m"
     }
 
+    private static func dateString(_ date: Date, format: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = format
+        return formatter.string(from: date)
+    }
+
     public static func bankedCreditTitle(_ credit: BankedResetCredit) -> String {
         let title = credit.title ?? "Available reset credit"
         guard let expiration = credit.expiresAt else { return title }
-
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "M/d"
-        return "\(title) — expires on \(formatter.string(from: expiration))"
+        return "\(title) — expires on \(dayMonth(expiration))"
     }
 }
 
@@ -382,7 +405,7 @@ private struct ActivityHeatmap: View {
 
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
-                        Text(selectedDate.formatted(date: .abbreviated, time: .omitted))
+                        Text(Formatters.dayMonthYear(selectedDate))
                             .font(.caption.weight(.medium))
                         Spacer()
                         Button {
@@ -436,14 +459,14 @@ private struct ActivityHeatmap: View {
     }
 
     private func activitySummary(for date: Date, usage: Double) -> String {
-        let dateLabel = date.formatted(.dateTime.month(.abbreviated).day())
+        let dateLabel = Formatters.dayMonthName(date)
         guard usage > 0 else { return "\(dateLabel) · no use" }
         let usageLabel = usage.formatted(.number.precision(.fractionLength(0...1)))
         return "\(dateLabel) · \(usageLabel) quota pts"
     }
 
     private func activityDescription(for date: Date, usage: Double) -> String {
-        let dateLabel = date.formatted(date: .long, time: .omitted)
+        let dateLabel = Formatters.longDayMonthYear(date)
         guard usage > 0 else { return "\(dateLabel) · No recorded usage" }
         let usageLabel = usage.formatted(.number.precision(.fractionLength(0...1)))
         return "\(dateLabel) · \(usageLabel) quota points used"
