@@ -544,7 +544,6 @@ private enum PreferenceTab: String, CaseIterable, Identifiable {
 
 public struct SettingsView: View {
     @Bindable private var settings = SettingsStore.shared
-    @Bindable private var store = UsageStore.shared
     @State private var selectedTab: PreferenceTab
 
     public init(initialTab: SettingsTab = .general) {
@@ -644,18 +643,22 @@ public struct SettingsView: View {
     }
 
     private var profilePreferences: some View {
-        List {
+        Form {
             Section {
                 ForEach(settings.orderedDisplayProfiles) { profile in
                     profileOrderRow(profile)
                 }
             } header: {
-                Text("Shown in SeeUsage")
-            } footer: {
-                Text("Drag profiles to set their order in the main view.")
+                HStack {
+                    Text("Display order")
+                    Spacer()
+                    Text("Drag rows to reorder")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
-            Section("Codex profiles") {
+            Section("Configure Codex profiles") {
                 if settings.codexProfiles.isEmpty {
                     Text("No profiles configured.").foregroundStyle(.secondary)
                 }
@@ -689,59 +692,26 @@ public struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .listStyle(.inset)
+        .formStyle(.grouped)
     }
 
     private func profileOrderRow(_ profile: UsageProfile) -> some View {
-        let snapshot = store.snapshots[profile.id]
-        let hasUsableSnapshot = snapshot.map { $0.error == nil } ?? false
-        let primaryWindow = hasUsableSnapshot ? snapshot?.windows.first : nil
-
         return HStack(spacing: 10) {
             Image(systemName: profile.provider == .antigravity ? "sparkles" : "person.crop.circle")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(settings.currentTheme.accent)
-                .frame(width: 32, height: 32)
-                .background(settings.currentTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Text(profile.name)
-                        .font(.system(.body, weight: .medium))
-                    Text(profile.provider == .antigravity ? "Antigravity" : "Codex")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    if snapshot?.isStale == true {
-                        Text("old data")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if let window = primaryWindow, let remaining = window.remainingPercent {
-                    HStack(spacing: 8) {
-                        Text([window.scope, window.label].compactMap { $0 }.joined(separator: " · "))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer(minLength: 4)
-                        Text("\(Int(remaining.rounded()))%")
-                            .monospacedDigit()
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                    ProgressView(value: max(0, min(100, remaining)), total: 100)
-                        .tint(settings.currentTheme.accent)
-                } else {
-                    Text(snapshot?.error == nil
-                        ? (snapshot?.isStale == true ? "No recent quota data" : (store.isRefreshing ? "Updating usage…" : "No quota data yet"))
-                        : "Usage unavailable")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(profile.name)
+                .font(.system(.body, weight: .medium))
+            Spacer()
+            Text(profile.provider == .antigravity ? "Antigravity" : "Codex")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Image(systemName: "line.3.horizontal")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 1)
+        .contentShape(Rectangle())
         .draggable(profile.id.uuidString)
         .dropDestination(for: String.self) { values, _ in
             guard let value = values.first,
