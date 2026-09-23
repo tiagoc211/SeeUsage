@@ -309,6 +309,7 @@ public struct UsagePopoverView: View {
 private struct ActivityHeatmap: View {
     let dailyConsumption: [DailyConsumption]
     let accent: Color
+    @State private var hoveredDate: Date?
 
     var body: some View {
         let calendar = Calendar.current
@@ -321,15 +322,19 @@ private struct ActivityHeatmap: View {
             entries.reduce(0) { $0 + $1.consumptionPercent }
         }
         let peakUsage = usageByDay.values.max() ?? 0
+        let hoverSummary = hoveredDate.map { date in
+            activitySummary(for: date, usage: usageByDay[calendar.startOfDay(for: date)] ?? 0)
+        } ?? "Last 12 weeks"
 
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Activity")
                     .font(.subheadline.weight(.medium))
                 Spacer()
-                Text("Last 12 weeks")
+                Text(hoverSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             HStack(spacing: 3) {
@@ -343,8 +348,11 @@ private struct ActivityHeatmap: View {
                             RoundedRectangle(cornerRadius: 2)
                                 .fill(activityColor(for: intensity))
                                 .frame(width: 12, height: 12)
-                                .help(activityTooltip(for: date, usage: usage))
-                                .accessibilityLabel(activityTooltip(for: date, usage: usage))
+                                .contentShape(Rectangle())
+                                .onHover { isHovering in
+                                    if isHovering { hoveredDate = date }
+                                }
+                                .accessibilityLabel(activityDescription(for: date, usage: usage))
                         }
                     }
                 }
@@ -369,7 +377,14 @@ private struct ActivityHeatmap: View {
         }
     }
 
-    private func activityTooltip(for date: Date, usage: Double) -> String {
+    private func activitySummary(for date: Date, usage: Double) -> String {
+        let dateLabel = date.formatted(.dateTime.month(.abbreviated).day())
+        guard usage > 0 else { return "\(dateLabel) · no use" }
+        let usageLabel = usage.formatted(.number.precision(.fractionLength(0...1)))
+        return "\(dateLabel) · \(usageLabel) quota pts"
+    }
+
+    private func activityDescription(for date: Date, usage: Double) -> String {
         let dateLabel = date.formatted(date: .long, time: .omitted)
         guard usage > 0 else { return "\(dateLabel) · No recorded usage" }
         let usageLabel = usage.formatted(.number.precision(.fractionLength(0...1)))
