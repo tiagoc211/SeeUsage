@@ -150,6 +150,9 @@ public struct UsagePopoverView: View {
                     if !analytics.snapshots.isEmpty {
                         ActivityHeatmap(
                             dailyConsumption: analytics.computeDailyConsumption(days: 85),
+                            historySnapshots: analytics.snapshots.filter {
+                                $0.timestamp >= Date().addingTimeInterval(-85 * 86_400)
+                            },
                             accent: settings.currentTheme.accent
                         )
                     }
@@ -329,8 +332,15 @@ public struct UsagePopoverView: View {
     }
 }
 
+private struct ActivityProfileUsage: Identifiable {
+    let id: UUID
+    let profileName: String
+    let consumptionPercent: Double
+}
+
 private struct ActivityHeatmap: View {
     let dailyConsumption: [DailyConsumption]
+    let historySnapshots: [QuotaHistorySnapshot]
     let accent: Color
     @State private var hoveredDate: Date?
     @State private var selectedDate: Date?
@@ -346,10 +356,29 @@ private struct ActivityHeatmap: View {
             entries.reduce(0) { $0 + $1.consumptionPercent }
         }
         let peakUsage = usageByDay.values.max() ?? 0
-        let selectedProfileUsage = selectedDate.map { selectedDate in
-            dailyConsumption
-                .filter { calendar.isDate($0.date, inSameDayAs: selectedDate) }
-                .sorted { $0.consumptionPercent > $1.consumptionPercent }
+        let selectedProfileUsage: [ActivityProfileUsage] = selectedDate.map { selectedDate in
+            var sampledProfiles: [UUID: (name: String, service: String)] = [:]
+            for snapshot in historySnapshots where calendar.isDate(snapshot.timestamp, inSameDayAs: selectedDate) {
+                for record in snapshot.records {
+                    sampledProfiles[record.profileID] = (record.profileName, record.service)
+                }
+            }
+
+            let usageByProfile = Dictionary(
+                dailyConsumption
+                    .filter { calendar.isDate($0.date, inSameDayAs: selectedDate) }
+                    .map { ($0.profileID, $0.consumptionPercent) },
+                uniquingKeysWith: { first, _ in first }
+            )
+
+            return sampledProfiles.map { profileID, profile in
+                ActivityProfileUsage(
+                    id: profileID,
+                    profileName: profile.service == "Antigravity" ? "agy" : profile.name,
+                    consumptionPercent: usageByProfile[profileID] ?? 0
+                )
+            }
+            .sorted { $0.consumptionPercent > $1.consumptionPercent }
         } ?? []
         let hoverSummary = hoveredDate.map { date in
             activitySummary(for: date, usage: usageByDay[calendar.startOfDay(for: date)] ?? 0)
