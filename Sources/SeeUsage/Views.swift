@@ -92,13 +92,6 @@ public struct UsagePopoverView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if !analytics.snapshots.isEmpty {
-                        ActivityHeatmap(
-                            dailyConsumption: analytics.computeDailyConsumption(days: 85),
-                            accent: settings.currentTheme.accent
-                        )
-                    }
-
                     if settings.codexProfiles.isEmpty {
                         ContentUnavailableView {
                             Label("No Codex profiles", systemImage: "person.crop.circle.badge.questionmark")
@@ -129,6 +122,13 @@ public struct UsagePopoverView: View {
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 24)
+                    }
+
+                    if !analytics.snapshots.isEmpty {
+                        ActivityHeatmap(
+                            dailyConsumption: analytics.computeDailyConsumption(days: 85),
+                            accent: settings.currentTheme.accent
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -322,24 +322,35 @@ private struct ActivityHeatmap: View {
         }
         let peakUsage = usageByDay.values.max() ?? 0
 
-        HStack(spacing: 3) {
-            ForEach(0..<12, id: \.self) { week in
-                VStack(spacing: 3) {
-                    ForEach(0..<7, id: \.self) { day in
-                        let date = calendar.date(byAdding: .day, value: week * 7 + day, to: firstWeekStart) ?? today
-                        let usage = usageByDay[date] ?? 0
-                        let intensity = activityIntensity(for: usage, peak: peakUsage)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Activity")
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Text("Last 12 weeks")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(activityColor(for: intensity))
-                            .frame(width: 12, height: 12)
-                            .help(date.formatted(date: .long, time: .omitted))
-                            .accessibilityLabel("\(date.formatted(date: .complete, time: .omitted)), activity level \(intensity) of 4")
+            HStack(spacing: 3) {
+                ForEach(0..<12, id: \.self) { week in
+                    VStack(spacing: 3) {
+                        ForEach(0..<7, id: \.self) { day in
+                            let date = calendar.date(byAdding: .day, value: week * 7 + day, to: firstWeekStart) ?? today
+                            let usage = usageByDay[date] ?? 0
+                            let intensity = activityIntensity(for: usage, peak: peakUsage)
+
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(activityColor(for: intensity))
+                                .frame(width: 12, height: 12)
+                                .help(date.formatted(date: .long, time: .omitted))
+                                .accessibilityLabel("\(date.formatted(date: .complete, time: .omitted)), activity level \(intensity) of 4")
+                        }
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 2)
     }
 
