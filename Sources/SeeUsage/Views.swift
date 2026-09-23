@@ -343,8 +343,8 @@ private struct ActivityHeatmap: View {
                             RoundedRectangle(cornerRadius: 2)
                                 .fill(activityColor(for: intensity))
                                 .frame(width: 12, height: 12)
-                                .help(date.formatted(date: .long, time: .omitted))
-                                .accessibilityLabel("\(date.formatted(date: .complete, time: .omitted)), activity level \(intensity) of 4")
+                                .help(activityTooltip(for: date, usage: usage))
+                                .accessibilityLabel(activityTooltip(for: date, usage: usage))
                         }
                     }
                 }
@@ -367,6 +367,13 @@ private struct ActivityHeatmap: View {
         case 4: accent
         default: Color.primary.opacity(0.07)
         }
+    }
+
+    private func activityTooltip(for date: Date, usage: Double) -> String {
+        let dateLabel = date.formatted(date: .long, time: .omitted)
+        guard usage > 0 else { return "\(dateLabel) · No recorded usage" }
+        let usageLabel = usage.formatted(.number.precision(.fractionLength(0...1)))
+        return "\(dateLabel) · \(usageLabel) quota points used"
     }
 }
 
