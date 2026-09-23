@@ -538,7 +538,7 @@ private struct ActivityHeatmap: View {
 }
 
 private enum PreferenceTab: String, CaseIterable, Identifiable {
-    case general, profiles
+    case general, providers
     var id: String { rawValue }
 }
 
@@ -547,7 +547,7 @@ public struct SettingsView: View {
     @State private var selectedTab: PreferenceTab
 
     public init(initialTab: SettingsTab = .general) {
-        _selectedTab = State(initialValue: initialTab == .profiles ? .profiles : .general)
+        _selectedTab = State(initialValue: initialTab == .profiles ? .providers : .general)
     }
 
     public var body: some View {
@@ -555,16 +555,16 @@ public struct SettingsView: View {
             generalPreferences
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(PreferenceTab.general)
-            profilePreferences
-                .tabItem { Label("Profiles", systemImage: "person.crop.circle") }
-                .tag(PreferenceTab.profiles)
+            providerPreferences
+                .tabItem { Label("Providers", systemImage: "network") }
+                .tag(PreferenceTab.providers)
         }
         .padding(20)
         .frame(minWidth: 560, minHeight: 440)
         .tint(settings.currentTheme.accent)
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("app.seeusage.selectSettingsTab"))) { note in
             if (note.object as? String) == SettingsTab.profiles.rawValue {
-                selectedTab = .profiles
+                selectedTab = .providers
             } else {
                 selectedTab = .general
             }
@@ -625,11 +625,6 @@ public struct SettingsView: View {
                     .disabled(!settings.notificationsEnabled)
             }
 
-            DisclosureGroup("Command line tools") {
-                TextField("Codex executable path", text: $settings.codexExecutableOverride)
-                TextField("Antigravity executable path", text: $settings.antigravityExecutableOverride)
-            }
-
             LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0")
         }
         .formStyle(.grouped)
@@ -642,8 +637,19 @@ public struct SettingsView: View {
         return [settings.currentTheme] + themes
     }
 
-    private var profilePreferences: some View {
+    private var providerPreferences: some View {
         Form {
+            Section("Codex") {
+                providerStatusRow(executablePath: codexExecutablePath)
+                DisclosureGroup("CLI path") {
+                    TextField("Executable path", text: $settings.codexExecutableOverride)
+                        .font(.system(.body, design: .monospaced))
+                    Text("Leave empty to search common locations.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section {
                 ForEach(settings.orderedDisplayProfiles) { profile in
                     profileOrderRow(profile)
@@ -652,13 +658,13 @@ public struct SettingsView: View {
                 HStack {
                     Text("Display order")
                     Spacer()
-                    Text("Drag rows to reorder")
+                    Text("Drag to reorder")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Section("Configure Codex profiles") {
+            Section("Codex profiles") {
                 if settings.codexProfiles.isEmpty {
                     Text("No profiles configured.").foregroundStyle(.secondary)
                 }
@@ -686,13 +692,41 @@ public struct SettingsView: View {
                 }
             }
 
-            Section {
-                Text("SeeUsage reads usage from each selected Codex home. Your credentials stay in the Codex configuration folders.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Section("Antigravity") {
+                providerStatusRow(executablePath: antigravityExecutablePath)
+                DisclosureGroup("CLI path") {
+                    TextField("Executable path", text: $settings.antigravityExecutableOverride)
+                        .font(.system(.body, design: .monospaced))
+                    Text("Leave empty to search common locations.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var codexExecutablePath: String? {
+        ProcessRunner.resolveExecutable(named: "codex", overridePath: settings.codexExecutableOverride)
+    }
+
+    private var antigravityExecutablePath: String? {
+        ProcessRunner.resolveExecutable(named: "agy", overridePath: settings.antigravityExecutableOverride)
+    }
+
+    private func providerStatusRow(executablePath: String?) -> some View {
+        HStack(spacing: 8) {
+            Label(executablePath == nil ? "Not installed" : "Installed", systemImage: executablePath == nil ? "xmark.circle" : "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(executablePath == nil ? Color.secondary : Color.green)
+            Spacer(minLength: 8)
+            Text(executablePath ?? "CLI not found")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.vertical, 2)
     }
 
     private func profileOrderRow(_ profile: UsageProfile) -> some View {
