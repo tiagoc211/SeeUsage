@@ -79,6 +79,7 @@ public enum Formatters {
 public struct UsagePopoverView: View {
     @Bindable private var store = UsageStore.shared
     @Bindable private var settings = SettingsStore.shared
+    @Bindable private var analytics = AnalyticsManager.shared
     @State private var pendingReset: PendingReset?
     @State private var isConfirmingReset = false
     @State private var resultMessage: String?
@@ -91,6 +92,13 @@ public struct UsagePopoverView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    if !analytics.snapshots.isEmpty {
+                        ActivityHeatmap(
+                            dailyConsumption: analytics.computeDailyConsumption(days: 85),
+                            accent: settings.currentTheme.accent
+                        )
+                    }
+
                     if settings.codexProfiles.isEmpty {
                         ContentUnavailableView {
                             Label("No Codex profiles", systemImage: "person.crop.circle.badge.questionmark")
@@ -294,6 +302,59 @@ public struct UsagePopoverView: View {
                 creditId: item.credit.serverCreditID
             )
             resultMessage = result.message
+        }
+    }
+}
+
+private struct ActivityHeatmap: View {
+    let dailyConsumption: [DailyConsumption]
+    let accent: Color
+
+    var body: some View {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        let firstWeekStart = calendar.date(byAdding: .weekOfYear, value: -11, to: currentWeekStart) ?? currentWeekStart
+        let usageByDay = Dictionary(grouping: dailyConsumption) {
+            calendar.startOfDay(for: $0.date)
+        }.mapValues { entries in
+            entries.reduce(0) { $0 + $1.consumptionPercent }
+        }
+        let peakUsage = usageByDay.values.max() ?? 0
+
+        HStack(spacing: 3) {
+            ForEach(0..<12, id: \.self) { week in
+                VStack(spacing: 3) {
+                    ForEach(0..<7, id: \.self) { day in
+                        let date = calendar.date(byAdding: .day, value: week * 7 + day, to: firstWeekStart) ?? today
+                        let usage = usageByDay[date] ?? 0
+                        let intensity = activityIntensity(for: usage, peak: peakUsage)
+
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(activityColor(for: intensity))
+                            .frame(width: 12, height: 12)
+                            .help(date.formatted(date: .long, time: .omitted))
+                            .accessibilityLabel("\(date.formatted(date: .complete, time: .omitted)), activity level \(intensity) of 4")
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 2)
+    }
+
+    private func activityIntensity(for usage: Double, peak: Double) -> Int {
+        guard usage > 0, peak > 0 else { return 0 }
+        return min(4, max(1, Int(ceil(usage / peak * 4))))
+    }
+
+    private func activityColor(for intensity: Int) -> Color {
+        switch intensity {
+        case 1: accent.opacity(0.22)
+        case 2: accent.opacity(0.42)
+        case 3: accent.opacity(0.68)
+        case 4: accent
+        default: Color.primary.opacity(0.07)
         }
     }
 }
