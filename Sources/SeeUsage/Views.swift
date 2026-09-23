@@ -64,6 +64,16 @@ public enum Formatters {
         if hours > 0 { return "in \(hours)h \(minutes)m" }
         return "in \(max(1, minutes))m"
     }
+
+    public static func bankedCreditTitle(_ credit: BankedResetCredit) -> String {
+        let title = credit.title ?? "Available reset credit"
+        guard let expiration = credit.expiresAt else { return title }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "M/d"
+        return "\(title) — expires on \(formatter.string(from: expiration))"
+    }
 }
 
 public struct UsagePopoverView: View {
@@ -204,7 +214,7 @@ public struct UsagePopoverView: View {
                     if creditCount > 0 {
                         Menu {
                             ForEach(credits) { credit in
-                                Button(credit.title ?? "Available reset credit") {
+                                Button(Formatters.bankedCreditTitle(credit)) {
                                     pendingReset = PendingReset(profile: profile, credit: credit)
                                     isConfirmingReset = true
                                 }

@@ -225,8 +225,9 @@ extension CLIHandler {
                 let expStr: String
                 if let exp = b.credit.expiresAt {
                     let df = DateFormatter()
-                    df.dateFormat = "MMM d"
-                    expStr = "expires \(df.string(from: exp))"
+                    df.locale = Locale(identifier: "en_US_POSIX")
+                    df.dateFormat = "M/d"
+                    expStr = "expires on \(df.string(from: exp))"
                 } else {
                     expStr = "no expiration"
                 }
