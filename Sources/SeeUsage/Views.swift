@@ -142,6 +142,7 @@ public struct UsagePopoverView: View {
         } message: {
             Text(resultMessage ?? "")
         }
+        .tint(settings.currentTheme.accent)
     }
 
     private var header: some View {
@@ -312,6 +313,7 @@ public struct SettingsView: View {
         }
         .padding(20)
         .frame(minWidth: 560, minHeight: 440)
+        .tint(settings.currentTheme.accent)
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("app.seeusage.selectSettingsTab"))) { note in
             if (note.object as? String) == SettingsTab.profiles.rawValue {
                 selectedTab = .profiles
@@ -332,6 +334,21 @@ public struct SettingsView: View {
                     Text("15 minutes").tag(15)
                 }
                 Toggle("Launch at login", isOn: $settings.launchAtLogin)
+            }
+
+            Section("Appearance") {
+                Picker("Accent color", selection: $settings.selectedThemeID) {
+                    ForEach(ThemeRegistry.appearanceThemes) { theme in
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(theme.accent)
+                                .frame(width: 10, height: 10)
+                            Text(theme.name)
+                        }
+                        .tag(theme.id)
+                    }
+                }
+                .pickerStyle(.menu)
             }
 
             Section("Notifications") {

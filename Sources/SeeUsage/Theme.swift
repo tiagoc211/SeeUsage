@@ -337,6 +337,14 @@ public enum ThemeRegistry {
         solarized
     ]
 
+    public static let appearanceThemes: [AppTheme] = [
+        t3Default,
+        t3Ocean,
+        t3Grove,
+        t3Iris,
+        t3Ember
+    ]
+
     public static func theme(for id: String) -> AppTheme {
         let clean = id.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         switch clean {
